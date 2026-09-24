@@ -1,0 +1,10 @@
+# Binaries
+aip
+/bin/
+
+# Dependencies
+web/node_modules/
+web/dist/
+
+# Runtime data
+.aip/

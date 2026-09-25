@@ -1,4 +1,4 @@
-package daemon
+package main
 
 import (
 	"encoding/json"
@@ -16,7 +16,7 @@ import (
 	"aip/internal/db"
 )
 
-func IsProcessRunning(pid int) bool {
+func isProcessRunning(pid int) bool {
 	process, err := os.FindProcess(pid)
 	if err != nil {
 		return false
@@ -26,7 +26,7 @@ func IsProcessRunning(pid int) bool {
 	return err == nil
 }
 
-func GetRunningPID(pidFile string) (int, error) {
+func getRunningPID(pidFile string) (int, error) {
 	data, err := os.ReadFile(pidFile)
 	if err != nil {
 		return 0, err
@@ -36,15 +36,15 @@ func GetRunningPID(pidFile string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if !IsProcessRunning(pid) {
+	if !isProcessRunning(pid) {
 		_ = os.Remove(pidFile)
 		return 0, fmt.Errorf("stale PID %d", pid)
 	}
 	return pid, nil
 }
 
-func Start(cfg *config.Config) error {
-	pid, err := GetRunningPID(cfg.PIDPath)
+func startDaemon(cfg *config.Config) error {
+	pid, err := getRunningPID(cfg.PIDPath)
 	if err == nil && pid > 0 {
 		fmt.Printf("AIP Gateway is already running (PID: %d) on http://localhost:%d\n", pid, cfg.Port)
 		return nil
@@ -79,7 +79,7 @@ func Start(cfg *config.Config) error {
 
 	// Give process a moment to initialize
 	time.Sleep(300 * time.Millisecond)
-	if !IsProcessRunning(childPID) {
+	if !isProcessRunning(childPID) {
 		_ = os.Remove(cfg.PIDPath)
 		return fmt.Errorf("daemon failed to start. Check %s for details", cfg.LogPath)
 	}
@@ -90,8 +90,8 @@ func Start(cfg *config.Config) error {
 	return nil
 }
 
-func Stop(cfg *config.Config) error {
-	pid, err := GetRunningPID(cfg.PIDPath)
+func stopDaemon(cfg *config.Config) error {
+	pid, err := getRunningPID(cfg.PIDPath)
 	if err != nil || pid <= 0 {
 		fmt.Println("AIP Gateway is not running.")
 		_ = os.Remove(cfg.PIDPath)
@@ -112,7 +112,7 @@ func Stop(cfg *config.Config) error {
 	stopped := false
 	for i := 0; i < 50; i++ {
 		time.Sleep(100 * time.Millisecond)
-		if !IsProcessRunning(pid) {
+		if !isProcessRunning(pid) {
 			stopped = true
 			break
 		}
@@ -128,17 +128,8 @@ func Stop(cfg *config.Config) error {
 	return nil
 }
 
-type DaemonStatus struct {
-	Running       bool      `json:"running"`
-	PID           int       `json:"pid"`
-	Port          int       `json:"port"`
-	ActiveProxies int64     `json:"active_proxies"`
-	TotalRequests int64     `json:"total_requests"`
-	SuccessRate   float64   `json:"success_rate"`
-}
-
-func Status(cfg *config.Config) error {
-	pid, err := GetRunningPID(cfg.PIDPath)
+func daemonStatus(cfg *config.Config) error {
+	pid, err := getRunningPID(cfg.PIDPath)
 	if err != nil || pid <= 0 {
 		fmt.Println("Status: STOPPED")
 		fmt.Println("Run 'aip start' to launch the gateway.")
@@ -151,11 +142,11 @@ func Status(cfg *config.Config) error {
 	resp, err := client.Get(healthURL)
 	if err == nil && resp.StatusCode == http.StatusOK {
 		var stats struct {
-			Status        string    `json:"status"`
-			ActiveProxies int64     `json:"active_proxies"`
-			TotalRequests int64     `json:"total_requests"`
-			SuccessRate   float64   `json:"success_rate"`
-			Uptime        string    `json:"uptime"`
+			Status        string  `json:"status"`
+			ActiveProxies int64   `json:"active_proxies"`
+			TotalRequests int64   `json:"total_requests"`
+			SuccessRate   float64 `json:"success_rate"`
+			Uptime        string  `json:"uptime"`
 		}
 		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()

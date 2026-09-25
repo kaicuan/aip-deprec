@@ -3,17 +3,16 @@ package upstream
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"aip/internal/config"
 	"aip/internal/db"
 	"aip/internal/proxy"
-	"aip/internal/ratelimit"
 )
 
 type Upstream struct {
@@ -35,10 +34,36 @@ type chatRequestSnippet struct {
 	Stream bool   `json:"stream"`
 }
 
-var usageRegex = regexp.MustCompile(`"usage"\s*:\s*\{([^}]+)\}`)
 var promptTokensRegex = regexp.MustCompile(`"(?:prompt_tokens|input_tokens)"\s*:\s*(\d+)`)
 var compTokensRegex = regexp.MustCompile(`"(?:completion_tokens|output_tokens)"\s*:\s*(\d+)`)
 var cachedTokensRegex = regexp.MustCompile(`"(?:cached_tokens|cache_read_input_tokens)"\s*:\s*(\d+)`)
+
+func copyHeaderWithoutHopByHop(dst, src http.Header) {
+	for k, vv := range src {
+		if strings.EqualFold(k, "Transfer-Encoding") || strings.EqualFold(k, "Connection") {
+			continue
+		}
+		for _, v := range vv {
+			dst.Add(k, v)
+		}
+	}
+}
+
+func extractToken(regex *regexp.Regexp, primary, secondary string) int {
+	if m := regex.FindStringSubmatch(primary); len(m) > 1 {
+		if val, err := strconv.Atoi(m[1]); err == nil {
+			return val
+		}
+	}
+	if secondary != "" && secondary != primary {
+		if m := regex.FindStringSubmatch(secondary); len(m) > 1 {
+			if val, err := strconv.Atoi(m[1]); err == nil {
+				return val
+			}
+		}
+	}
+	return 0
+}
 
 func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix string) {
 	// Read request body into memory for retry capability & logging
@@ -58,13 +83,6 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 		_ = json.Unmarshal(bodyBytes, &reqSnippet)
 	}
 
-	sessionID := r.Header.Get("x-opencode-session")
-	if sessionID == "" {
-		sessionID = r.Header.Get("x-session-affinity")
-	}
-	if sessionID == "" {
-		sessionID = r.Header.Get("X-Session-Id")
-	}
 	targetURL := strings.TrimRight(u.baseURL, "/") + "/" + strings.TrimLeft(pathSuffix, "/")
 
 	startTime := time.Now()
@@ -75,19 +93,16 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 
 	// Try with failover
 	maxRetries := 3
-	proxies, _ := u.db.ListProxies()
-	if len(proxies) > 0 && len(proxies) < maxRetries {
-		maxRetries = len(proxies)
-	}
+	triedIDs := make(map[int64]bool)
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		var selectedProxy *db.Proxy
 		if attempt == 0 {
 			selectedProxy, err = u.pool.GetNextProxy()
 		} else {
-			candidates := u.pool.GetOnlineCandidates(lastProxy.ID)
+			candidates := u.pool.GetOnlineCandidatesExcluding(triedIDs)
 			if len(candidates) > 0 {
-				selectedProxy = candidates[attempt%len(candidates)]
+				selectedProxy = candidates[0]
 			} else {
 				break
 			}
@@ -97,8 +112,9 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 			break
 		}
 		lastProxy = selectedProxy
+		triedIDs[selectedProxy.ID] = true
 
-		transport, trErr := proxy.CreateTransport(selectedProxy)
+		transport, trErr := u.pool.GetTransport(selectedProxy)
 		if trErr != nil {
 			lastErr = trErr
 			continue
@@ -116,15 +132,7 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 		}
 
 		// Copy headers
-		for k, vv := range r.Header {
-			// Skip hop-by-hop headers
-			if strings.EqualFold(k, "Transfer-Encoding") || strings.EqualFold(k, "Connection") {
-				continue
-			}
-			for _, v := range vv {
-				outReq.Header.Add(k, v)
-			}
-		}
+		copyHeaderWithoutHopByHop(outReq.Header, r.Header)
 
 		// Inject Authorization: Bearer public & Host header
 		outReq.Header.Set("Authorization", "Bearer public")
@@ -142,7 +150,7 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 		if resp.StatusCode == http.StatusTooManyRequests {
 			respBytes, _ := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
-			cooldown := ratelimit.ParseResetDuration(resp.Header, string(respBytes))
+			cooldown := ParseResetDuration(resp.Header, string(respBytes))
 			cooldownUntil := time.Now().Add(cooldown).Unix()
 			_ = u.db.RecordProxyFailure(selectedProxy.ID, cooldownUntil, true)
 			lastResp = resp
@@ -174,7 +182,6 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 			StatusCode:   http.StatusBadGateway,
 			DurationMs:   durationMs,
 			ErrorMessage: errMsg,
-			SessionID:    sessionID,
 			RequestBody:  string(bodyBytes),
 		})
 		http.Error(w, errMsg, http.StatusBadGateway)
@@ -186,11 +193,7 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 	// If it ended on 429 and all retries were exhausted
 	if lastResp.StatusCode == http.StatusTooManyRequests && len(finalBodyBytes) > 0 {
 		durationMs := int(time.Since(startTime).Milliseconds())
-		for k, vv := range lastResp.Header {
-			for _, v := range vv {
-				w.Header().Add(k, v)
-			}
-		}
+		copyHeaderWithoutHopByHop(w.Header(), lastResp.Header)
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write(finalBodyBytes)
 
@@ -205,7 +208,6 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 			StatusCode:   http.StatusTooManyRequests,
 			DurationMs:   durationMs,
 			ErrorMessage: string(finalBodyBytes),
-			SessionID:    sessionID,
 			RequestBody:  string(bodyBytes),
 			ResponseBody: string(finalBodyBytes),
 		})
@@ -213,21 +215,13 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 	}
 
 	// Copy response headers
-	for k, vv := range lastResp.Header {
-		if strings.EqualFold(k, "Transfer-Encoding") || strings.EqualFold(k, "Connection") {
-			continue
-		}
-		for _, v := range vv {
-			w.Header().Add(k, v)
-		}
-	}
+	copyHeaderWithoutHopByHop(w.Header(), lastResp.Header)
 	w.WriteHeader(lastResp.StatusCode)
 
 	flusher, isFlusher := w.(http.Flusher)
 	buf := make([]byte, 4096)
 	var capturedOutput bytes.Buffer
 	var tailOutput bytes.Buffer
-	var promptTokens, compTokens, cachedTokens int
 
 	for {
 		n, rErr := lastResp.Body.Read(buf)
@@ -261,24 +255,9 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 		checkStr = capturedStr
 	}
 
-	// Extract token metrics if present
-	if m := promptTokensRegex.FindStringSubmatch(checkStr); len(m) > 1 {
-		fmt.Sscanf(m[1], "%d", &promptTokens)
-	} else if m := promptTokensRegex.FindStringSubmatch(capturedStr); len(m) > 1 {
-		fmt.Sscanf(m[1], "%d", &promptTokens)
-	}
-
-	if m := compTokensRegex.FindStringSubmatch(checkStr); len(m) > 1 {
-		fmt.Sscanf(m[1], "%d", &compTokens)
-	} else if m := compTokensRegex.FindStringSubmatch(capturedStr); len(m) > 1 {
-		fmt.Sscanf(m[1], "%d", &compTokens)
-	}
-
-	if m := cachedTokensRegex.FindStringSubmatch(checkStr); len(m) > 1 {
-		fmt.Sscanf(m[1], "%d", &cachedTokens)
-	} else if m := cachedTokensRegex.FindStringSubmatch(capturedStr); len(m) > 1 {
-		fmt.Sscanf(m[1], "%d", &cachedTokens)
-	}
+	promptTokens := extractToken(promptTokensRegex, checkStr, capturedStr)
+	compTokens := extractToken(compTokensRegex, checkStr, capturedStr)
+	cachedTokens := extractToken(cachedTokensRegex, checkStr, capturedStr)
 
 	isStream := 0
 	if reqSnippet.Stream || strings.Contains(lastResp.Header.Get("Content-Type"), "text/event-stream") {
@@ -300,7 +279,6 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 		CompletionTokens: compTokens,
 		CacheReadTokens:  cachedTokens,
 		IsStream:         isStream,
-		SessionID:        sessionID,
 		RequestBody:      string(bodyBytes),
 		ResponseBody:     capturedStr,
 	})

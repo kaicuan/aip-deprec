@@ -19,7 +19,8 @@ type Config struct {
 	Port         int
 }
 
-func GetConfig() (*Config, error) {
+// Load initializes default runtime directories and loads configuration paths.
+func Load() (*Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -38,4 +39,9 @@ func GetConfig() (*Config, error) {
 		OpenCodeJSON: filepath.Join(home, ".config", "opencode", "opencode.json"),
 		Port:         DefaultPort,
 	}, nil
+}
+
+// GetConfig aliases Load for backward compatibility.
+func GetConfig() (*Config, error) {
+	return Load()
 }

@@ -19,9 +19,10 @@ import (
 )
 
 type Pool struct {
-	db      *db.DB
-	rrIndex uint64
-	mu      sync.Mutex
+	db         *db.DB
+	rrIndex    uint64
+	mu         sync.Mutex
+	transports sync.Map // map[string]*http.Transport
 }
 
 func NewPool(database *db.DB) *Pool {
@@ -273,8 +274,33 @@ func (pool *Pool) GetNextProxy() (*db.Proxy, error) {
 	return selected, nil
 }
 
-// GetOnlineCandidates returns all currently eligible proxies for failover
+// GetTransport returns a cached *http.Transport for the given proxy, or creates and caches a new one.
+func (pool *Pool) GetTransport(p *db.Proxy) (*http.Transport, error) {
+	key := "direct"
+	if p != nil && p.URL != "" {
+		key = p.URL
+	}
+
+	if val, ok := pool.transports.Load(key); ok {
+		return val.(*http.Transport), nil
+	}
+
+	tr, err := CreateTransport(p)
+	if err != nil {
+		return nil, err
+	}
+
+	actual, _ := pool.transports.LoadOrStore(key, tr)
+	return actual.(*http.Transport), nil
+}
+
+// GetOnlineCandidates returns all currently eligible proxies for failover excluding excludeID
 func (pool *Pool) GetOnlineCandidates(excludeID int64) []*db.Proxy {
+	return pool.GetOnlineCandidatesExcluding(map[int64]bool{excludeID: true})
+}
+
+// GetOnlineCandidatesExcluding returns all eligible online proxies excluding any IDs in the excludeIDs set
+func (pool *Pool) GetOnlineCandidatesExcluding(excludeIDs map[int64]bool) []*db.Proxy {
 	proxies, err := pool.db.ListProxies()
 	if err != nil {
 		return nil
@@ -283,7 +309,7 @@ func (pool *Pool) GetOnlineCandidates(excludeID int64) []*db.Proxy {
 	now := time.Now().Unix()
 	var candidates []*db.Proxy
 	for _, p := range proxies {
-		if p.ID == excludeID {
+		if excludeIDs != nil && excludeIDs[p.ID] {
 			continue
 		}
 		if p.Status == "rate_limited" && p.CooldownUntil > 0 && now >= p.CooldownUntil {

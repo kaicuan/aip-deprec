@@ -30,7 +30,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { getUsageLogs, type RequestLogItem } from "@/lib/api"
+import { getUsageLogs, getSingleUsage, type RequestLogItem } from "@/lib/api"
 
 export function UsagePage() {
   const [logs, setLogs] = useState<RequestLogItem[]>([])
@@ -73,9 +73,17 @@ export function UsagePage() {
     )
   })
 
-  const handleRowClick = (log: RequestLogItem) => {
+  const handleRowClick = async (log: RequestLogItem) => {
     setSelectedLog(log)
     setIsInspectOpen(true)
+    if (!log.request_body && !log.response_body) {
+      try {
+        const full = await getSingleUsage(log.id)
+        setSelectedLog(full)
+      } catch (err) {
+        console.error("Failed to load full request log:", err)
+      }
+    }
   }
 
   const handleCopyReq = () => {

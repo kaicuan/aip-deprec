@@ -1,4 +1,4 @@
-package ratelimit
+package upstream
 
 import (
 	"net/http"
@@ -9,14 +9,8 @@ import (
 )
 
 var (
-	// regex for "resets in 2 hours 15 minutes", "resets in 45m", "try again in 1h 30m"
+	// regex for "resets in 2 hours 15 minutes", "resets in 45m", "try again in 1h 30m", "resets in 45 seconds"
 	hourMinSecRegex = regexp.MustCompile(`(?i)(?:resets? in|try again in|wait|retry after)\s*(?:(\d+)\s*(?:hours?|hrs?|h))?\s*(?:(\d+)\s*(?:minutes?|mins?|m))?\s*(?:(\d+)\s*(?:seconds?|secs?|s))?`)
-	// regex for single number of seconds like "retry after 120 seconds" or "try again in 45 seconds"
-	singleSecondsRegex = regexp.MustCompile(`(?i)(?:resets? in|try again in|wait|retry after)\s*(\d+)\s*(?:seconds?|secs?|s)\b`)
-	// regex for single number of minutes like "try again in 5 minutes"
-	singleMinutesRegex = regexp.MustCompile(`(?i)(?:resets? in|try again in|wait|retry after)\s*(\d+)\s*(?:minutes?|mins?|m)\b`)
-	// regex for single number of hours
-	singleHoursRegex = regexp.MustCompile(`(?i)(?:resets? in|try again in|wait|retry after)\s*(\d+)\s*(?:hours?|hrs?|h)\b`)
 )
 
 // ParseResetDuration parses headers and body of a 429 response to find cooldown seconds
@@ -68,39 +62,25 @@ func ParseResetDuration(respHeaders http.Header, body string) time.Duration {
 }
 
 func parseDurationFromBody(body string) time.Duration {
-	if matches := hourMinSecRegex.FindStringSubmatch(body); len(matches) > 0 {
-		var hours, mins, secs int
-		if matches[1] != "" {
-			hours, _ = strconv.Atoi(matches[1])
-		}
-		if matches[2] != "" {
-			mins, _ = strconv.Atoi(matches[2])
-		}
-		if matches[3] != "" {
-			secs, _ = strconv.Atoi(matches[3])
-		}
-		totalSecs := hours*3600 + mins*60 + secs
-		if totalSecs > 0 {
-			return time.Duration(totalSecs) * time.Second
-		}
+	matches := hourMinSecRegex.FindStringSubmatch(body)
+	if len(matches) == 0 {
+		return 0
 	}
 
-	if matches := singleSecondsRegex.FindStringSubmatch(body); len(matches) > 1 {
-		if secs, err := strconv.Atoi(matches[1]); err == nil && secs > 0 {
-			return time.Duration(secs) * time.Second
-		}
+	var hours, mins, secs int
+	if matches[1] != "" {
+		hours, _ = strconv.Atoi(matches[1])
+	}
+	if matches[2] != "" {
+		mins, _ = strconv.Atoi(matches[2])
+	}
+	if matches[3] != "" {
+		secs, _ = strconv.Atoi(matches[3])
 	}
 
-	if matches := singleMinutesRegex.FindStringSubmatch(body); len(matches) > 1 {
-		if mins, err := strconv.Atoi(matches[1]); err == nil && mins > 0 {
-			return time.Duration(mins) * time.Minute
-		}
-	}
-
-	if matches := singleHoursRegex.FindStringSubmatch(body); len(matches) > 1 {
-		if hours, err := strconv.Atoi(matches[1]); err == nil && hours > 0 {
-			return time.Duration(hours) * time.Hour
-		}
+	totalSecs := hours*3600 + mins*60 + secs
+	if totalSecs > 0 {
+		return time.Duration(totalSecs) * time.Second
 	}
 
 	return 0

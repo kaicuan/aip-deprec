@@ -1,8 +1,8 @@
 import { Link, useLocation } from "react-router-dom"
 import {
-  Activity,
-  Cpu,
-  Layers,
+  Blocks,
+  ChartColumnBig,
+  LayoutDashboard,
   Network,
   Radio,
   Terminal,
@@ -25,12 +25,12 @@ const navItems = [
   {
     title: "Overview",
     url: "/",
-    icon: Layers,
+    icon: LayoutDashboard,
   },
   {
-    title: "Integration & Models",
+    title: "Integration",
     url: "/integration",
-    icon: Cpu,
+    icon: Blocks,
   },
   {
     title: "Proxies",
@@ -40,7 +40,7 @@ const navItems = [
   {
     title: "Usage",
     url: "/usage",
-    icon: Activity,
+    icon: ChartColumnBig,
   },
   {
     title: "Console Logs",

@@ -18,32 +18,18 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { getStats, getUsageLogs, type RequestLogItem, type StatsData } from "@/lib/api"
+import { getStats, type StatsData } from "@/lib/api"
 
 export function OverviewPage() {
   const [stats, setStats] = useState<StatsData | null>(null)
-  const [recentLogs, setRecentLogs] = useState<RequestLogItem[]>([])
   const [loading, setLoading] = useState(true)
 
   const loadData = async () => {
     try {
       setLoading(true)
-      const [statsData, logsData] = await Promise.all([
-        getStats(),
-        getUsageLogs(5, 0),
-      ])
+      const statsData = await getStats()
       setStats(statsData)
-      setRecentLogs(logsData.logs || [])
     } catch (err) {
       console.error("Failed to load overview data:", err)
     } finally {
@@ -230,97 +216,6 @@ export function OverviewPage() {
               </p>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Recent Requests Table with "View more" link */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Activity className="size-4 text-primary" />
-              Recent Requests
-            </CardTitle>
-            <CardDescription>
-              Snapshot of the latest gateway requests and upstream failovers.
-            </CardDescription>
-          </div>
-          <CardAction>
-            <Button
-              variant="outline"
-              size="sm"
-              render={<Link to="/usage" />}
-              className="text-xs font-medium"
-            >
-              View more
-              <ArrowUpRight className="size-3.5 ml-1" />
-            </Button>
-          </CardAction>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-xl border border-border overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[120px]">Time</TableHead>
-                  <TableHead>Model</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Latency</TableHead>
-                  <TableHead>Tokens (In/Out)</TableHead>
-                  <TableHead className="text-right">Proxy Node</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {recentLogs.length > 0 ? (
-                  recentLogs.map((log) => {
-                    const timeStr = new Date(log.timestamp * 1000).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      second: "2-digit",
-                    })
-                    const isSuccess = log.status_code >= 200 && log.status_code < 300
-                    const is429 = log.status_code === 429
-
-                    return (
-                      <TableRow key={log.id}>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
-                          {timeStr}
-                        </TableCell>
-                        <TableCell className="font-medium text-foreground">
-                          <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
-                            {log.model || "default"}
-                          </code>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={isSuccess ? "default" : is429 ? "secondary" : "destructive"}
-                            className="font-mono text-[11px]"
-                          >
-                            {log.status_code}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
-                          {log.duration_ms}ms
-                        </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
-                          {log.prompt_tokens} / {log.completion_tokens}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs text-muted-foreground truncate max-w-[200px]">
-                          {log.proxy_url.replace(/:\/\/.*@/, "://***@")}
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                      No requests processed yet.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
         </CardContent>
       </Card>
     </div>

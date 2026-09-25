@@ -8,7 +8,6 @@ import (
 	"syscall"
 
 	"aip/internal/config"
-	"aip/internal/daemon"
 	"aip/internal/db"
 	"aip/internal/server"
 )
@@ -29,19 +28,19 @@ func main() {
 
 	switch command {
 	case "start":
-		if err := daemon.Start(cfg); err != nil {
+		if err := startDaemon(cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Error starting AIP daemon: %v\n", err)
 			os.Exit(1)
 		}
 
 	case "stop":
-		if err := daemon.Stop(cfg); err != nil {
+		if err := stopDaemon(cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Error stopping AIP daemon: %v\n", err)
 			os.Exit(1)
 		}
 
 	case "status":
-		if err := daemon.Status(cfg); err != nil {
+		if err := daemonStatus(cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Error getting status: %v\n", err)
 			os.Exit(1)
 		}

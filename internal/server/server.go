@@ -58,7 +58,7 @@ func (s *Server) Start() error {
 
 	// Dashboard REST API (dashboard.go)
 	mux.HandleFunc("/api/health", s.handleHealth)
-	mux.HandleFunc("/api/stats", s.handleStats)
+	mux.HandleFunc("/api/usage/summary", s.handleUsageSummary)
 	mux.HandleFunc("/api/proxies", s.handleProxies)
 	mux.HandleFunc("/api/proxies/test", s.handleProxiesTest)
 	mux.HandleFunc("/api/proxies/", s.handleSingleProxy)

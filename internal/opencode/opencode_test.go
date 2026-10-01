@@ -13,13 +13,12 @@ func TestBuildModelsDict(t *testing.T) {
 	t.Run("ModelWithLimitsAndCapabilities", func(t *testing.T) {
 		models := []*db.Model{
 			{
-				ID:            "custom-llm",
-				Name:          "Custom LLM",
-				ContextLength: 128000,
-				OutputLimit:   4096,
-				Modalities:    "text,image",
-				Variants:      `{"low":{"reasoningEffort":"low"}}`,
-				Capabilities:  `{"reasoning":true}`,
+				ID:               "custom-llm",
+				Name:             "Custom LLM",
+				Limit:            `{"context":128000,"output":4096}`,
+				Modalities:       "text,image",
+				Reasoning:        true,
+				ReasoningOptions: `[{"type":"effort","values":["low"]}]`,
 			},
 		}
 
@@ -34,12 +33,17 @@ func TestBuildModelsDict(t *testing.T) {
 		}
 
 		limit, ok := entry["limit"].(map[string]interface{})
-		if !ok || limit["context"] != 128000 || limit["output"] != 4096 {
+		if !ok || int(limit["context"].(float64)) != 128000 || int(limit["output"].(float64)) != 4096 {
 			t.Errorf("unexpected limit: %v", limit)
 		}
 
 		if entry["reasoning"] != true {
 			t.Errorf("expected reasoning capability true, got %v", entry["reasoning"])
+		}
+
+		variants, ok := entry["variants"].(map[string]interface{})
+		if !ok || variants["low"] == nil {
+			t.Errorf("expected variants.low, got %v", entry["variants"])
 		}
 	})
 
@@ -64,9 +68,9 @@ func TestBuildModelsDict(t *testing.T) {
 	t.Run("ProviderOverride", func(t *testing.T) {
 		models := []*db.Model{
 			{
-				ID:          "special-model",
-				Name:        "Special Model",
-				ProviderNPM: "@ai-sdk/openai",
+				ID:       "special-model",
+				Name:     "Special Model",
+				Provider: `{"npm":"@ai-sdk/openai"}`,
 			},
 		}
 
@@ -113,9 +117,9 @@ func TestLinkAndUnlink(t *testing.T) {
 	t.Run("LinkOrSync", func(t *testing.T) {
 		models := []*db.Model{
 			{
-				ID:            "demo-free-model",
-				Name:          "Demo Free Model",
-				ContextLength: 100000,
+				ID:    "demo-free-model",
+				Name:  "Demo Free Model",
+				Limit: `{"context":100000}`,
 			},
 		}
 

@@ -33,11 +33,15 @@ func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
 		if created == 0 {
 			created = time.Now().Unix()
 		}
+		ownedBy := m.Lab
+		if ownedBy == "" {
+			ownedBy = "ai-proxy"
+		}
 		data = append(data, modelObj{
 			ID:      m.ID,
 			Object:  "model",
 			Created: created,
-			OwnedBy: m.Provider,
+			OwnedBy: ownedBy,
 		})
 	}
 

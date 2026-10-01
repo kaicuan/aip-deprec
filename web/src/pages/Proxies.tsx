@@ -8,6 +8,7 @@ import {
   Plus,
   RefreshCw,
   Trash2,
+  X,
   XCircle,
 } from "lucide-react"
 
@@ -27,13 +28,25 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer"
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs"
+import {
+  Field,
+  FieldDescription,
+  FieldLabel,
+} from "@/components/ui/field"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -413,115 +426,124 @@ export function ProxiesPage() {
         </CardContent>
       </Card>
 
-      {/* Add Proxy Drawer / Slide-Over Sheet */}
-      <Sheet open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <SheetContent side="right" className="sm:max-w-md w-full flex flex-col justify-between">
-          <div>
-            <SheetHeader>
-              <SheetTitle>Add Proxies to Pool</SheetTitle>
-              <SheetDescription>
-                Supports standard URLs, vendor format (ip:port:user:pass), and bulk lists.
-              </SheetDescription>
-            </SheetHeader>
-
-            <div className="mt-6 space-y-4">
-              {/* Add mode switcher */}
-              <div className="flex rounded-xl bg-muted p-1 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setAddMode("bulk")}
-                  className={`flex-1 rounded-lg py-1.5 font-medium transition-all ${
-                    addMode === "bulk"
-                      ? "bg-card text-foreground shadow-xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Bulk Import / Vendor Format
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAddMode("single")}
-                  className={`flex-1 rounded-lg py-1.5 font-medium transition-all ${
-                    addMode === "single"
-                      ? "bg-card text-foreground shadow-xs"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Single Proxy
-                </button>
-              </div>
-
-              {/* Protocol selector */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground">
-                  Default Protocol
-                </label>
-                <div className="flex gap-2">
-                  {["http", "socks5"].map((proto) => (
+      {/* Add Proxy Drawer */}
+      <Drawer
+        open={isAddOpen}
+        onOpenChange={(open) => {
+          setIsAddOpen(open)
+          if (!open) setFormError(null)
+        }}
+        swipeDirection="right"
+      >
+        <DrawerContent className="data-[swipe-axis=x]:sm:max-w-md data-[swipe-axis=x]:sm:[--drawer-content-width:28rem]">
+          <div className="flex h-full flex-col">
+            <DrawerHeader className="border-b border-border pb-4">
+              <div className="flex items-center justify-between">
+                <DrawerTitle>Add Proxies to Pool</DrawerTitle>
+                <DrawerClose
+                  render={
                     <Button
-                      key={proto}
-                      type="button"
-                      variant={defaultProtocol === proto ? "default" : "outline"}
-                      size="xs"
-                      onClick={() => setDefaultProtocol(proto)}
-                      className="capitalize font-mono text-xs"
-                    >
-                      {proto}
-                    </Button>
-                  ))}
-                </div>
+                      variant="ghost"
+                      size="icon-sm"
+                    />
+                  }
+                >
+                  <X className="size-4" />
+                  <span className="sr-only">Close</span>
+                </DrawerClose>
               </div>
+              <DrawerDescription>
+                Supports standard URLs, vendor format (ip:port:user:pass), and bulk lists.
+              </DrawerDescription>
+            </DrawerHeader>
 
-              {addMode === "bulk" ? (
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-foreground">
-                    Proxy List (One per line)
-                  </label>
-                  <Textarea
-                    placeholder={`# Supported formats:\n31.59.20.176:6754:user:pass\n45.38.107.97:6014\nhttp://user:pass@host:port\nsocks5://user:pass@host:port`}
-                    rows={8}
-                    value={bulkInput}
-                    onChange={(e) => setBulkInput(e.target.value)}
-                    className="font-mono text-xs leading-relaxed"
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    Auto-normalizes vendor raw format into valid proxy credentials.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <Tabs
+                value={addMode}
+                onValueChange={(val) => setAddMode(val as "bulk" | "single")}
+              >
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="bulk">Bulk Import</TabsTrigger>
+                  <TabsTrigger value="single">Single Proxy</TabsTrigger>
+                </TabsList>
+
+                {/* Protocol selector */}
+                <Field className="mt-4">
+                  <FieldLabel>Default Protocol</FieldLabel>
+                  <div className="flex gap-2">
+                    {["http", "socks5"].map((proto) => (
+                      <Button
+                        key={proto}
+                        type="button"
+                        variant={defaultProtocol === proto ? "default" : "outline"}
+                        size="xs"
+                        onClick={() => setDefaultProtocol(proto)}
+                        className="capitalize font-mono text-xs"
+                      >
+                        {proto}
+                      </Button>
+                    ))}
+                  </div>
+                </Field>
+
+                <TabsContent value="bulk" className="mt-4">
+                  <Field data-invalid={addMode === "bulk" && !!formError}>
+                    <FieldLabel>Proxy List (One per line)</FieldLabel>
+                    <Textarea
+                      placeholder={`# Supported formats:\n31.59.20.176:6754:user:pass\n45.38.107.97:6014\nhttp://user:pass@host:port\nsocks5://user:pass@host:port`}
+                      rows={8}
+                      value={bulkInput}
+                      onChange={(e) => {
+                        setBulkInput(e.target.value)
+                        if (formError) setFormError(null)
+                      }}
+                      className="font-mono text-xs leading-relaxed"
+                    />
+                    <FieldDescription>
+                      Auto-normalizes vendor raw format into valid proxy credentials.
+                    </FieldDescription>
+                  </Field>
+                </TabsContent>
+
+                <TabsContent value="single" className="mt-4 space-y-3">
                   <div className="grid grid-cols-3 gap-2">
-                    <div className="col-span-2 space-y-1">
-                      <label className="text-xs font-medium text-foreground">Host / IP</label>
+                    <Field className="col-span-2" data-invalid={addMode === "single" && !!formError && !singleHost}>
+                      <FieldLabel>Host / IP</FieldLabel>
                       <Input
                         placeholder="192.168.1.1 or proxy.io"
                         value={singleHost}
-                        onChange={(e) => setSingleHost(e.target.value)}
+                        onChange={(e) => {
+                          setSingleHost(e.target.value)
+                          if (formError) setFormError(null)
+                        }}
                         className="font-mono text-xs"
                       />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-foreground">Port</label>
+                    </Field>
+                    <Field data-invalid={addMode === "single" && !!formError && !singlePort}>
+                      <FieldLabel>Port</FieldLabel>
                       <Input
                         placeholder="8080"
                         value={singlePort}
-                        onChange={(e) => setSinglePort(e.target.value)}
+                        onChange={(e) => {
+                          setSinglePort(e.target.value)
+                          if (formError) setFormError(null)
+                        }}
                         className="font-mono text-xs"
                       />
-                    </div>
+                    </Field>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-foreground">Username (Optional)</label>
+                    <Field>
+                      <FieldLabel>Username (Optional)</FieldLabel>
                       <Input
                         placeholder="user"
                         value={singleUser}
                         onChange={(e) => setSingleUser(e.target.value)}
                         className="font-mono text-xs"
                       />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-foreground">Password (Optional)</label>
+                    </Field>
+                    <Field>
+                      <FieldLabel>Password (Optional)</FieldLabel>
                       <Input
                         type="password"
                         placeholder="pass"
@@ -529,10 +551,10 @@ export function ProxiesPage() {
                         onChange={(e) => setSinglePass(e.target.value)}
                         className="font-mono text-xs"
                       />
-                    </div>
+                    </Field>
                   </div>
-                </div>
-              )}
+                </TabsContent>
+              </Tabs>
 
               {formError && (
                 <div className="rounded-lg bg-destructive/10 p-2.5 text-xs text-destructive flex items-center gap-2">
@@ -541,29 +563,32 @@ export function ProxiesPage() {
                 </div>
               )}
             </div>
-          </div>
 
-          <SheetFooter className="mt-6 flex flex-row justify-end gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              type="button"
-              onClick={() => setIsAddOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="default"
-              size="sm"
-              type="button"
-              onClick={handleAddSubmit}
-              disabled={submitting}
-            >
-              {submitting ? "Adding..." : "Add to Pool"}
-            </Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+            <DrawerFooter className="border-t border-border p-4 flex-row justify-end gap-2">
+              <DrawerClose
+                render={
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    type="button"
+                  />
+                }
+              >
+                Cancel
+              </DrawerClose>
+              <Button
+                variant="default"
+                size="sm"
+                type="button"
+                onClick={handleAddSubmit}
+                disabled={submitting}
+              >
+                {submitting ? "Adding..." : "Add to Pool"}
+              </Button>
+            </DrawerFooter>
+          </div>
+        </DrawerContent>
+      </Drawer>
     </div>
   )
 }

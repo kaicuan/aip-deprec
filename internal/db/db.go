@@ -55,16 +55,17 @@ func (d *DB) initSchema() error {
 		`CREATE TABLE IF NOT EXISTS models (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
-			provider TEXT NOT NULL,
-			lab TEXT NOT NULL DEFAULT '',
-			context_length INTEGER NOT NULL DEFAULT 0,
-			output_limit INTEGER NOT NULL DEFAULT 0,
+			"limit" TEXT NOT NULL DEFAULT '{}',
 			modalities TEXT NOT NULL DEFAULT '',
-			is_free INTEGER NOT NULL DEFAULT 1,
-			fetched_at INTEGER NOT NULL DEFAULT 0,
-			variants TEXT NOT NULL DEFAULT '',
-			capabilities TEXT NOT NULL DEFAULT '',
-			provider_npm TEXT NOT NULL DEFAULT ''
+			reasoning BOOLEAN NOT NULL DEFAULT 0,
+			tool_call BOOLEAN NOT NULL DEFAULT 0,
+			temperature BOOLEAN NOT NULL DEFAULT 0,
+			attachment BOOLEAN NOT NULL DEFAULT 0,
+			reasoning_options TEXT NOT NULL DEFAULT '',
+			provider TEXT NOT NULL DEFAULT '',
+			lab TEXT NOT NULL DEFAULT '',
+			commercial_rate TEXT NOT NULL DEFAULT '{}',
+			fetched_at INTEGER NOT NULL DEFAULT 0
 		);`,
 		`CREATE TABLE IF NOT EXISTS request_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,8 +81,10 @@ func (d *DB) initSchema() error {
 			is_stream INTEGER NOT NULL DEFAULT 0,
 			session_id TEXT NOT NULL DEFAULT '',
 			request_body TEXT NOT NULL DEFAULT '',
-			response_body TEXT NOT NULL DEFAULT ''
+			response_body TEXT NOT NULL DEFAULT '',
+			estimated_savings REAL NOT NULL DEFAULT 0.0
 		);`,
+		`CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON request_logs(timestamp);`,
 	}
 
 	for _, q := range queries {
@@ -89,20 +92,11 @@ func (d *DB) initSchema() error {
 			return err
 		}
 	}
-
-	// Auto-migrate models table for existing databases
-	_ = d.addColumnIfNotExists("models", "lab", "TEXT NOT NULL DEFAULT ''")
-	_ = d.addColumnIfNotExists("models", "variants", "TEXT NOT NULL DEFAULT ''")
-	_ = d.addColumnIfNotExists("models", "capabilities", "TEXT NOT NULL DEFAULT ''")
-	_ = d.addColumnIfNotExists("models", "provider_npm", "TEXT NOT NULL DEFAULT ''")
-
-	// Migrate optional columns if existing DB was created without them
-	_ = d.addColumnIfNotExists("models", "output_limit", "INTEGER NOT NULL DEFAULT 0")
-	_ = d.addColumnIfNotExists("models", "modalities", "TEXT NOT NULL DEFAULT ''")
 	_ = d.addColumnIfNotExists("request_logs", "cache_read_tokens", "INTEGER NOT NULL DEFAULT 0")
 	_ = d.addColumnIfNotExists("request_logs", "session_id", "TEXT NOT NULL DEFAULT ''")
 	_ = d.addColumnIfNotExists("request_logs", "request_body", "TEXT NOT NULL DEFAULT ''")
 	_ = d.addColumnIfNotExists("request_logs", "response_body", "TEXT NOT NULL DEFAULT ''")
+	_ = d.addColumnIfNotExists("request_logs", "estimated_savings", "REAL NOT NULL DEFAULT 0.0")
 	// Clean up any direct proxy entries so local IP is never part of the pool
 	_, _ = d.db.Exec(`DELETE FROM proxies WHERE protocol = 'direct'`)
 

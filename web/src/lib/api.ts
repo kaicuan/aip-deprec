@@ -20,14 +20,17 @@ export interface ProxyItem {
 export interface ModelItem {
   id: string
   name: string
-  provider: string
-  lab?: string
-  context_length: number
-  output_limit: number
+  limit?: string
   modalities: string
-  is_free: number
+  reasoning?: boolean
+  tool_call?: boolean
+  temperature?: boolean
+  attachment?: boolean
+  reasoning_options?: string
+  provider?: string
+  lab?: string
+  commercial_rate?: string
   fetched_at: number
-  provider_npm?: string
 }
 
 export interface RequestLogItem {
@@ -45,17 +48,30 @@ export interface RequestLogItem {
   session_id: string
   request_body: string
   response_body: string
+  estimated_savings: number
 }
 
-export interface StatsData {
+export interface UsageSummary {
+  range: string
+  range_minutes: number
   total_requests: number
-  success_rate: number
   total_tokens: number
   total_prompt_tokens: number
   total_completion_tokens: number
-  active_proxies_count: number
-  total_proxies_count: number
+  total_cache_read_tokens: number
+  cache_hit_rate: number
+  avg_tokens_per_request: number
+  rpm: number
+  tpm: number
+  estimated_savings: number
   model_usage: Record<string, number>
+}
+
+export interface ServerHealth {
+  status: string
+  uptime: string
+  active_proxies: number
+  total_proxies: number
 }
 
 export interface OpenCodeStatus {
@@ -68,9 +84,15 @@ export interface OpenCodeStatus {
 
 const API_BASE = ''
 
-export async function getStats(): Promise<StatsData> {
-  const res = await fetch(`${API_BASE}/api/stats`)
-  if (!res.ok) throw new Error('Failed to fetch stats')
+export async function getUsageSummary(range = '7d'): Promise<UsageSummary> {
+  const res = await fetch(`${API_BASE}/api/usage/summary?range=${encodeURIComponent(range)}`)
+  if (!res.ok) throw new Error('Failed to fetch usage summary')
+  return res.json()
+}
+
+export async function getServerHealth(): Promise<ServerHealth> {
+  const res = await fetch(`${API_BASE}/api/health`)
+  if (!res.ok) throw new Error('Failed to fetch server health')
   return res.json()
 }
 

@@ -129,59 +129,29 @@ func stopDaemon(cfg *config.Config) error {
 }
 
 func daemonStatus(cfg *config.Config) error {
-	pid, err := getRunningPID(cfg.PIDPath)
-	if err != nil || pid <= 0 {
-		fmt.Println("Status: STOPPED")
-		fmt.Println("Run 'aip start' to launch the gateway.")
-		return nil
-	}
-
-	// Gateway is running, let's query its health endpoint for accurate runtime stats
 	healthURL := fmt.Sprintf("http://localhost:%d/api/health", cfg.Port)
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := &http.Client{Timeout: 1 * time.Second}
 	resp, err := client.Get(healthURL)
 	if err == nil && resp.StatusCode == http.StatusOK {
-		var stats struct {
-			Status        string  `json:"status"`
-			ActiveProxies int64   `json:"active_proxies"`
-			TotalRequests int64   `json:"total_requests"`
-			SuccessRate   float64 `json:"success_rate"`
-			Uptime        string  `json:"uptime"`
-		}
+		var health db.ServerHealth
 		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
-		_ = json.Unmarshal(body, &stats)
+		_ = json.Unmarshal(body, &health)
 
-		fmt.Println("Status: RUNNING")
-		fmt.Printf("PID:            %d\n", pid)
-		fmt.Printf("Endpoint:       http://localhost:%d\n", cfg.Port)
-		if stats.Uptime != "" {
-			fmt.Printf("Uptime:         %s\n", stats.Uptime)
+		pid, _ := getRunningPID(cfg.PIDPath)
+		fmt.Println("Status:         RUNNING")
+		if pid > 0 {
+			fmt.Printf("PID:            %d\n", pid)
 		}
-		fmt.Printf("Active Proxies: %d\n", stats.ActiveProxies)
-		fmt.Printf("Total Requests: %d\n", stats.TotalRequests)
-		fmt.Printf("Success Rate:   %.1f%%\n", stats.SuccessRate)
+		fmt.Printf("Endpoint:       http://localhost:%d\n", cfg.Port)
+		if health.Uptime != "" {
+			fmt.Printf("Uptime:         %s\n", health.Uptime)
+		}
+		fmt.Printf("Active Proxies: %d / %d\n", health.ActiveProxies, health.TotalProxies)
 		return nil
 	}
 
-	// Fallback to reading DB directly
-	database, dbErr := db.Open(cfg.DBPath)
-	if dbErr == nil {
-		defer database.Close()
-		st, _ := database.GetStats()
-		fmt.Println("Status: RUNNING")
-		fmt.Printf("PID:            %d\n", pid)
-		fmt.Printf("Endpoint:       http://localhost:%d\n", cfg.Port)
-		if st != nil {
-			fmt.Printf("Active Proxies: %d / %d\n", st.ActiveProxiesCount, st.TotalProxiesCount)
-			fmt.Printf("Total Requests: %d\n", st.TotalRequests)
-			fmt.Printf("Success Rate:   %.1f%%\n", st.SuccessRate)
-		}
-		return nil
-	}
-
-	fmt.Println("Status: RUNNING")
-	fmt.Printf("PID:      %d\n", pid)
-	fmt.Printf("Endpoint: http://localhost:%d\n", cfg.Port)
+	fmt.Println("Status:         STOPPED")
+	fmt.Println("Run 'aip start' to launch the gateway.")
 	return nil
 }

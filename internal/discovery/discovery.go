@@ -3,7 +3,6 @@ package discovery
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -11,37 +10,13 @@ import (
 	"aip/internal/db"
 )
 
-type ReasoningOption struct {
-	Type   string   `json:"type"`
-	Values []string `json:"values,omitempty"`
-}
+const catalogURL = "https://models.dev/catalog.json"
 
-type CatalogModel struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Status     string `json:"status"`
-	Limit      struct {
-		Context int `json:"context"`
-		Output  int `json:"output"`
-	} `json:"limit"`
-	Modalities struct {
-		Input  []string `json:"input"`
-		Output []string `json:"output"`
-	} `json:"modalities"`
-	Cost struct {
-		Input  float64 `json:"input"`
-		Output float64 `json:"output"`
-	} `json:"cost"`
-	Reasoning        bool                   `json:"reasoning"`
-	ReasoningOptions []ReasoningOption      `json:"reasoning_options"`
-	Variants         map[string]interface{} `json:"variants"`
-	Temperature      *bool                  `json:"temperature"`
-	ToolCall         *bool                  `json:"tool_call"`
-	Attachment       *bool                  `json:"attachment"`
-	Provider         *struct {
-		NPM string `json:"npm"`
-		API string `json:"api"`
-	} `json:"provider"`
+type CatalogResponse struct {
+	Providers struct {
+		OpenCode ProviderEntry `json:"opencode"`
+	} `json:"providers"`
+	Models map[string]json.RawMessage `json:"models"`
 }
 
 type ProviderEntry struct {
@@ -51,9 +26,33 @@ type ProviderEntry struct {
 	Models map[string]CatalogModel `json:"models"`
 }
 
-type CatalogResponse struct {
-	Providers map[string]ProviderEntry `json:"providers"`
-	Models    map[string]interface{}   `json:"models"`
+type CatalogModel struct {
+	ID         string          `json:"id"`
+	Name       string          `json:"name"`
+	Family     string          `json:"family,omitempty"`
+	Status     string          `json:"status"`
+	Limit      json.RawMessage `json:"limit"`
+	Modalities struct {
+		Input []string `json:"input"`
+	} `json:"modalities"`
+	Cost             ModelCost         `json:"cost"`
+	Reasoning        bool              `json:"reasoning"`
+	ReasoningOptions []ReasoningOption `json:"reasoning_options"`
+	ToolCall         *bool             `json:"tool_call"`
+	Temperature      *bool             `json:"temperature"`
+	Attachment       *bool             `json:"attachment"`
+	Provider         json.RawMessage   `json:"provider"`
+}
+
+type ModelCost struct {
+	Input     float64 `json:"input"`
+	Output    float64 `json:"output"`
+	CacheRead float64 `json:"cache_read"`
+}
+
+type ReasoningOption struct {
+	Type   string   `json:"type"`
+	Values []string `json:"values,omitempty"`
 }
 
 type DiscoveryService struct {
@@ -64,111 +63,68 @@ func NewDiscoveryService(database *db.DB) *DiscoveryService {
 	return &DiscoveryService{db: database}
 }
 
-// resolveLab dynamically finds the canonical creator lab from the models.dev catalog
-func resolveLab(modelID string, canonicalModels map[string]interface{}) string {
-	// If ID already contains a creator/lab prefix (e.g. "openai/gpt-4o"), use it
-	if parts := strings.Split(modelID, "/"); len(parts) == 2 && parts[0] != "opencode" {
-		return parts[0]
-	}
-
-	clean := strings.TrimSuffix(strings.TrimSuffix(modelID, "-free"), "-contributor")
-	cleanLower := strings.ToLower(clean)
-
-	for canonicalKey := range canonicalModels {
-		parts := strings.Split(canonicalKey, "/")
-		if len(parts) != 2 {
-			continue
-		}
-		lab := parts[0]
-		canonicalName := strings.ToLower(parts[1])
-
-		if cleanLower == canonicalName ||
-			strings.HasPrefix(cleanLower, canonicalName) ||
-			strings.HasPrefix(canonicalName, cleanLower) {
-			return lab
-		}
-	}
-
-	return "opencode"
-}
-
 func (s *DiscoveryService) FetchFreeModels() ([]*db.Model, error) {
-	urls := []string{
-		"https://models.dev/catalog.json",
-		"https://models.opencode.ai/catalog.json",
-		"https://models.dev/api.json",
-		"https://models.opencode.ai/api.json",
+	// Fetch models.dev catalog
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(catalogURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch model catalog: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status %d from %s", resp.StatusCode, catalogURL)
 	}
 
-	var data map[string]ProviderEntry
-	var canonicalModels map[string]interface{}
-	var lastErr error
+	var catResp CatalogResponse
+	if err := json.NewDecoder(resp.Body).Decode(&catResp); err != nil {
+		return nil, fmt.Errorf("failed to decode catalog from %s: %w", catalogURL, err)
+	}
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	opencodeEntry := catResp.Providers.OpenCode
+	if len(opencodeEntry.Models) == 0 {
+		return nil, fmt.Errorf("opencode provider empty or missing from catalog")
+	}
 
-	for _, u := range urls {
-		req, err := http.NewRequest("GET", u, nil)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		req.Header.Set("User-Agent", "aip-gateway/1.0")
+	// Index canonical models for creator lab resolution
+	nameToLab := make(map[string]string, len(catResp.Models))
+	familyToLab := make(map[string]string)
+	for key, raw := range catResp.Models {
+		parts := strings.Split(key, "/")
+		if len(parts) == 2 {
+			nameToLab[strings.ToLower(parts[1])] = parts[0]
 
-		resp, err := client.Do(req)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		body, err := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			lastErr = fmt.Errorf("status %d from %s", resp.StatusCode, u)
-			continue
-		}
-
-		var catResp CatalogResponse
-		if err := json.Unmarshal(body, &catResp); err == nil && len(catResp.Providers) > 0 {
-			data = catResp.Providers
-			canonicalModels = catResp.Models
-		} else {
-			if err := json.Unmarshal(body, &data); err != nil {
-				lastErr = err
-				continue
+			var meta struct {
+				Family string `json:"family"`
+			}
+			if err := json.Unmarshal(raw, &meta); err == nil && meta.Family != "" {
+				familyToLab[strings.ToLower(meta.Family)] = parts[0]
 			}
 		}
-
-		// Successfully retrieved
-		lastErr = nil
-		break
 	}
 
-	if lastErr != nil {
-		return nil, fmt.Errorf("failed to fetch model catalog: %w", lastErr)
+	// Index paid models for commercial rate lookup
+	paidRates := make(map[string]ModelCost, len(opencodeEntry.Models))
+	for mid, m := range opencodeEntry.Models {
+		if m.Cost.Input > 0 || m.Cost.Output > 0 {
+			cacheRead := m.Cost.CacheRead
+			if cacheRead == 0 && m.Cost.Input > 0 {
+				cacheRead = m.Cost.Input * 0.1
+			}
+			paidRates[normalizeModelID(mid)] = ModelCost{
+				Input:     m.Cost.Input,
+				Output:    m.Cost.Output,
+				CacheRead: cacheRead,
+			}
+		}
 	}
 
-	opencodeEntry, exists := data["opencode"]
-	if !exists {
-		return nil, fmt.Errorf("opencode provider not found in catalog")
-	}
-
+	// Filter and construct active free models
 	now := time.Now().Unix()
 	var savedModels []*db.Model
 
 	for modelID, m := range opencodeEntry.Models {
-		status := strings.ToLower(m.Status)
-		if status == "deprecated" {
-			continue
-		}
-
-		// Must be free: cost.input == 0 && cost.output == 0
-		if m.Cost.Input != 0 || m.Cost.Output != 0 {
+		if strings.ToLower(m.Status) == "deprecated" || m.Cost.Input != 0 || m.Cost.Output != 0 {
 			continue
 		}
 
@@ -181,93 +137,97 @@ func (s *DiscoveryService) FetchFreeModels() ([]*db.Model, error) {
 		if len(modalitiesList) == 0 {
 			modalitiesList = []string{"text"}
 		}
-		modalitiesStr := strings.Join(modalitiesList, ",")
 
-		// Derive variants 1:1 with OpenCode
-		variantsMap := make(map[string]interface{})
-		if len(m.Variants) > 0 {
-			variantsMap = m.Variants
-		} else {
-			var effortValues []string
-			for _, ro := range m.ReasoningOptions {
-				if ro.Type == "effort" && len(ro.Values) > 0 {
-					effortValues = ro.Values
-					break
-				}
-			}
+		cleanID := normalizeModelID(modelID)
+		lab := resolveLab(cleanID, m.Family, nameToLab, familyToLab)
 
-			if len(effortValues) == 0 && m.Reasoning {
-				idLower := strings.ToLower(modelID)
-				nonEffortModels := []string{"big-pickle", "nemotron", "mimo", "minimax", "qwen", "glm", "kimi"}
-				hasNoEffort := false
-				for _, ne := range nonEffortModels {
-					if strings.Contains(idLower, ne) {
-						hasNoEffort = true
-						break
-					}
-				}
-				if !hasNoEffort {
-					effortValues = []string{"low", "medium", "high"}
-				}
-			}
-
-			for _, v := range effortValues {
-				variantsMap[v] = map[string]string{
-					"reasoningEffort": v,
-				}
-			}
+		commercialRateJSON := "{}"
+		if rate, ok := paidRates[cleanID]; ok {
+			b, _ := json.Marshal(rate)
+			commercialRateJSON = string(b)
 		}
 
-		variantsJSON, _ := json.Marshal(variantsMap)
-
-		// Derive capabilities 1:1 with OpenCode
-		capsMap := make(map[string]interface{})
-		if m.Reasoning {
-			capsMap["reasoning"] = true
+		limitJSON := string(m.Limit)
+		if limitJSON == "" || limitJSON == "null" {
+			limitJSON = "{}"
 		}
+
+		reasoningOptionsJSON := ""
+		if len(m.ReasoningOptions) > 0 {
+			b, _ := json.Marshal(m.ReasoningOptions)
+			reasoningOptionsJSON = string(b)
+		}
+
+		providerJSON := string(m.Provider)
+		if providerJSON == "null" || providerJSON == "{}" {
+			providerJSON = ""
+		}
+		if providerJSON == "" && strings.Contains(strings.ToLower(modelID), "muse") {
+			providerJSON = `{"npm":"@ai-sdk/openai"}`
+		}
+
+		temp := false
 		if m.Temperature != nil {
-			capsMap["temperature"] = *m.Temperature
+			temp = *m.Temperature
 		}
+		toolCall := false
 		if m.ToolCall != nil {
-			capsMap["tool_call"] = *m.ToolCall
+			toolCall = *m.ToolCall
 		}
+		attachment := false
 		if m.Attachment != nil {
-			capsMap["attachment"] = *m.Attachment
+			attachment = *m.Attachment
 		}
 
-		capsJSON, _ := json.Marshal(capsMap)
-
-		lab := resolveLab(modelID, canonicalModels)
-
-		var providerNPM string
-		if m.Provider != nil && m.Provider.NPM != "" {
-			providerNPM = m.Provider.NPM
-		} else if strings.Contains(strings.ToLower(modelID), "muse") {
-			// Muse models require OpenAI Responses API SDK adapter
-			providerNPM = "@ai-sdk/openai"
-		}
-
-		modelRecord := &db.Model{
-			ID:            modelID,
-			Name:          name,
-			Provider:      "opencode",
-			Lab:           lab,
-			ContextLength: m.Limit.Context,
-			OutputLimit:   m.Limit.Output,
-			Modalities:    modalitiesStr,
-			IsFree:        1,
-			FetchedAt:     now,
-			Variants:      string(variantsJSON),
-			Capabilities:  string(capsJSON),
-			ProviderNPM:   providerNPM,
-		}
-
-		savedModels = append(savedModels, modelRecord)
+		savedModels = append(savedModels, &db.Model{
+			ID:               modelID,
+			Name:             name,
+			Limit:            limitJSON,
+			Modalities:       strings.Join(modalitiesList, ","),
+			Reasoning:        m.Reasoning,
+			ToolCall:         toolCall,
+			Temperature:      temp,
+			Attachment:       attachment,
+			ReasoningOptions: reasoningOptionsJSON,
+			Provider:         providerJSON,
+			Lab:              lab,
+			CommercialRate:   commercialRateJSON,
+			FetchedAt:        now,
+		})
 	}
 
+	// Atomically persist models to database
 	if err := s.db.UpdateModels(savedModels); err != nil {
 		return nil, fmt.Errorf("failed to update models: %w", err)
 	}
 
 	return savedModels, nil
+}
+
+func resolveLab(cleanID, family string, nameToLab, familyToLab map[string]string) string {
+	if lab, ok := nameToLab[cleanID]; ok {
+		return lab
+	}
+	if family != "" {
+		famLower := strings.ToLower(family)
+		if lab, ok := familyToLab[famLower]; ok {
+			return lab
+		}
+		if lab, ok := familyToLab[normalizeModelID(famLower)]; ok {
+			return lab
+		}
+	}
+	if idx := strings.IndexByte(cleanID, '-'); idx > 0 {
+		prefix := cleanID[:idx]
+		if lab, ok := familyToLab[prefix]; ok {
+			return lab
+		}
+		return prefix
+	}
+	return "opencode"
+}
+
+func normalizeModelID(modelID string) string {
+	clean := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(modelID, "-free"), "-contributor"), "-fin")
+	return strings.ToLower(clean)
 }

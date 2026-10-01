@@ -1,4 +1,4 @@
-.PHONY: build install dev clean run test
+.PHONY: build install uninstall dev clean run test
 
 BIN := aip
 INSTALL_DIR ?= $(HOME)/.local/bin
@@ -21,6 +21,17 @@ install: build
 	cp $(BIN) $(INSTALL_DIR)/$(BIN)
 	@chmod +x $(INSTALL_DIR)/$(BIN)
 	@echo "==> Installed successfully to $(INSTALL_DIR)/$(BIN)"
+
+uninstall:
+	@echo "==> Stopping AIP daemon if running..."
+	@-if [ -f $(HOME)/.aip/aip.pid ]; then \
+		kill $$(cat $(HOME)/.aip/aip.pid) 2>/dev/null || true; \
+	fi
+	@echo "==> Removing binary from $(INSTALL_DIR)..."
+	@rm -f $(INSTALL_DIR)/$(BIN)
+	@echo "==> Removing data directory (~/.aip)..."
+	@rm -rf $(HOME)/.aip
+	@echo "==> AIP completely uninstalled."
 
 dev:
 	@echo "==> Starting AIP development environment..."

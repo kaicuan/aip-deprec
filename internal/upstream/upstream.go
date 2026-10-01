@@ -269,6 +269,8 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 		proxyURL = lastProxy.URL
 	}
 
+	savings := u.calculateSavings(reqSnippet.Model, promptTokens, compTokens, cachedTokens)
+
 	_ = u.db.InsertRequestLog(&db.RequestLog{
 		Timestamp:        startTime.Unix(),
 		Model:            reqSnippet.Model,
@@ -281,5 +283,33 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 		IsStream:         isStream,
 		RequestBody:      string(bodyBytes),
 		ResponseBody:     capturedStr,
+		EstimatedSavings: savings,
 	})
+}
+
+func (u *Upstream) calculateSavings(modelID string, promptTokens, compTokens, cachedTokens int) float64 {
+	if promptTokens == 0 && compTokens == 0 {
+		return 0.0
+	}
+	m, err := u.db.GetModel(modelID)
+	if err != nil || m == nil || m.CommercialRate == "" || m.CommercialRate == "{}" {
+		return 0.0
+	}
+
+	var rate struct {
+		Input     float64 `json:"input"`
+		Output    float64 `json:"output"`
+		CacheRead float64 `json:"cache_read"`
+	}
+	if err := json.Unmarshal([]byte(m.CommercialRate), &rate); err != nil {
+		return 0.0
+	}
+
+	uncached := promptTokens - cachedTokens
+	if uncached < 0 {
+		uncached = 0
+	}
+
+	savings := (float64(uncached)*rate.Input + float64(cachedTokens)*rate.CacheRead + float64(compTokens)*rate.Output) / 1000000.0
+	return savings
 }

@@ -285,6 +285,20 @@ export function IntegrationPage() {
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {models.map((model) => {
                 const modalities = model.modalities ? model.modalities.split(",") : ["text"]
+                const parseLimit = (limitStr?: string): { context: number; output: number } => {
+                  if (!limitStr) return { context: 0, output: 0 }
+                  try {
+                    const parsed = JSON.parse(limitStr)
+                    return {
+                      context: typeof parsed.context === "number" ? parsed.context : 0,
+                      output: typeof parsed.output === "number" ? parsed.output : 0,
+                    }
+                  } catch {
+                    return { context: 0, output: 0 }
+                  }
+                }
+                const limit = parseLimit(model.limit)
+
                 const formatLimit = (num: number) => {
                   if (num >= 1000000) return `${(num / 1000000).toFixed(1).replace(/\.0$/, "")}M`
                   if (num >= 1000) return `${Math.round(num / 1000)}k`
@@ -327,9 +341,9 @@ export function IntegrationPage() {
                     <div className="mt-4 pt-3 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
                       <div className="flex items-center gap-1 font-mono">
                         <Layers className="size-3 text-muted-foreground" />
-                        <span>Ctx: {formatLimit(model.context_length)}</span>
-                        {model.output_limit > 0 && (
-                          <span>/ Out: {formatLimit(model.output_limit)}</span>
+                        <span>Ctx: {formatLimit(limit.context)}</span>
+                        {limit.output > 0 && (
+                          <span>/ Out: {formatLimit(limit.output)}</span>
                         )}
                       </div>
                       <div className="flex items-center gap-1">

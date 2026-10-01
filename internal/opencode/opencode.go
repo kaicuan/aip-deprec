@@ -198,6 +198,49 @@ func GenerateSnippet(models []*db.Model) string {
 	return string(bytes)
 }
 
+func buildVariants(reasoningOptionsJSON string, reasoning bool, modelID string) map[string]interface{} {
+	if !reasoning {
+		return nil
+	}
+
+	var effortValues []string
+	if reasoningOptionsJSON != "" && reasoningOptionsJSON != "[]" {
+		var options []struct {
+			Type   string   `json:"type"`
+			Values []string `json:"values,omitempty"`
+		}
+		if err := json.Unmarshal([]byte(reasoningOptionsJSON), &options); err == nil {
+			for _, opt := range options {
+				if opt.Type == "effort" && len(opt.Values) > 0 {
+					effortValues = opt.Values
+					break
+				}
+			}
+		}
+	}
+
+	// If no explicit effort values, apply OpenCode's reasoning fallback
+	if len(effortValues) == 0 {
+		idLower := strings.ToLower(modelID)
+		// Models with fixed/non-configurable reasoning do not expose effort variants in OpenCode
+		nonEffortModels := []string{"deepseek-chat", "deepseek-r1", "minimax", "kimi", "qwen", "big-pickle", "nemotron", "mimo"}
+		for _, ne := range nonEffortModels {
+			if strings.Contains(idLower, ne) {
+				return nil
+			}
+		}
+		effortValues = []string{"low", "medium", "high"}
+	}
+
+	variants := make(map[string]interface{}, len(effortValues))
+	for _, v := range effortValues {
+		variants[v] = map[string]string{
+			"reasoningEffort": v,
+		}
+	}
+	return variants
+}
+
 func buildModelsDict(models []*db.Model) map[string]interface{} {
 	modelsDict := make(map[string]interface{})
 	for _, mdl := range models {
@@ -205,15 +248,11 @@ func buildModelsDict(models []*db.Model) map[string]interface{} {
 			"name": mdl.Name,
 		}
 
-		if mdl.ContextLength > 0 || mdl.OutputLimit > 0 {
-			limitMap := make(map[string]interface{})
-			if mdl.ContextLength > 0 {
-				limitMap["context"] = mdl.ContextLength
+		if mdl.Limit != "" && mdl.Limit != "{}" {
+			var limitMap map[string]interface{}
+			if err := json.Unmarshal([]byte(mdl.Limit), &limitMap); err == nil && len(limitMap) > 0 {
+				mEntry["limit"] = limitMap
 			}
-			if mdl.OutputLimit > 0 {
-				limitMap["output"] = mdl.OutputLimit
-			}
-			mEntry["limit"] = limitMap
 		}
 
 		var inputModalities []string
@@ -234,32 +273,34 @@ func buildModelsDict(models []*db.Model) map[string]interface{} {
 			"output": []string{"text"},
 		}
 
-		// Add variants if present
-		if mdl.Variants != "" {
-			var variantsMap map[string]interface{}
-			if err := json.Unmarshal([]byte(mdl.Variants), &variantsMap); err == nil {
-				mEntry["variants"] = variantsMap
-			}
+		// Capabilities as direct boolean flags
+		if mdl.Reasoning {
+			mEntry["reasoning"] = true
+		}
+		if mdl.ToolCall {
+			mEntry["tool_call"] = true
+		}
+		if mdl.Temperature {
+			mEntry["temperature"] = true
+		}
+		if mdl.Attachment {
+			mEntry["attachment"] = true
 		}
 
-		// Add capabilities (reasoning, temperature, tool_call, attachment) if present
-		if mdl.Capabilities != "" {
-			var capsMap map[string]interface{}
-			if err := json.Unmarshal([]byte(mdl.Capabilities), &capsMap); err == nil {
-				for k, v := range capsMap {
-					mEntry[k] = v
-				}
-			}
+		// Dynamic variant generation for OpenCode
+		if variants := buildVariants(mdl.ReasoningOptions, mdl.Reasoning, mdl.ID); len(variants) > 0 {
+			mEntry["variants"] = variants
 		}
 
-		// Add provider SDK adapter override if specified (e.g. "@ai-sdk/openai" for Muse Spark models)
-		providerNPM := mdl.ProviderNPM
-		if providerNPM == "" && strings.Contains(strings.ToLower(mdl.ID), "muse") {
-			providerNPM = "@ai-sdk/openai"
-		}
-		if providerNPM != "" {
+		// Provider SDK adapter
+		if mdl.Provider != "" && mdl.Provider != "{}" {
+			var provMap map[string]interface{}
+			if err := json.Unmarshal([]byte(mdl.Provider), &provMap); err == nil && len(provMap) > 0 {
+				mEntry["provider"] = provMap
+			}
+		} else if strings.Contains(strings.ToLower(mdl.ID), "muse") {
 			mEntry["provider"] = map[string]interface{}{
-				"npm": providerNPM,
+				"npm": "@ai-sdk/openai",
 			}
 		}
 

@@ -16,41 +16,30 @@ import (
 
 // /api/health
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	uptime := time.Since(s.startTime).Round(time.Second).String()
-	stats, _ := s.db.GetStats()
-
-	activeCount := int64(0)
-	totalReqs := int64(0)
-	successRate := 100.0
-
-	if stats != nil {
-		activeCount = stats.ActiveProxiesCount
-		totalReqs = stats.TotalRequests
-		successRate = stats.SuccessRate
+	health, err := s.db.GetServerHealth()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	resp := map[string]interface{}{
-		"status":         "ok",
-		"uptime":         uptime,
-		"active_proxies": activeCount,
-		"total_requests": totalReqs,
-		"success_rate":   successRate,
-	}
+	health.Status = "ok"
+	health.Uptime = time.Since(s.startTime).Round(time.Second).String()
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(health)
 }
 
-// /api/stats
-func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
-	stats, err := s.db.GetStats()
+// /api/usage/summary
+func (s *Server) handleUsageSummary(w http.ResponseWriter, r *http.Request) {
+	rangeParam := r.URL.Query().Get("range")
+	summary, err := s.db.GetUsageSummary(rangeParam)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(stats)
+	_ = json.NewEncoder(w).Encode(summary)
 }
 
 // /api/proxies (GET, POST, DELETE)

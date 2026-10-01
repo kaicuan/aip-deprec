@@ -50,6 +50,44 @@ const PALETTE = [
   "var(--muted-foreground)",
 ]
 
+interface SliceTooltipEntry {
+  name: string
+  fullName: string
+  value: number
+  share: number
+  fill: string
+}
+
+function SliceTooltipContent({
+  active,
+  payload,
+}: {
+  active?: boolean
+  payload?: { payload: SliceTooltipEntry }[]
+}) {
+  if (!active || !payload?.length) return null
+  const item = payload[0].payload
+  return (
+    <div className="flex min-w-32 items-stretch gap-2 rounded-xl bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-lg ring-1 ring-foreground/5 dark:ring-foreground/10">
+      <div
+        className="-ml-1 w-1 shrink-0 rounded-[2px]"
+        style={{ backgroundColor: item.fill }}
+      />
+      <div className="grid flex-1 gap-1.5 leading-none">
+        <span className="font-medium" title={item.fullName}>
+          {item.name}
+        </span>
+        <span className="font-mono font-medium text-foreground tabular-nums">
+          {item.value.toLocaleString()}{" "}
+          <span className="text-muted-foreground">
+            ({item.share.toFixed(1)}%)
+          </span>
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export function DistributionChart({
   title,
   description,
@@ -165,35 +203,18 @@ export function DistributionChart({
               <PieChart>
                 <ChartTooltip
                   cursor={false}
-                  content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null
-                    const item = payload[0].payload
-                    return (
-                      <div className="rounded-xl bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg ring-1 ring-foreground/10">
-                        <div
-                          className="font-semibold text-foreground truncate max-w-[220px]"
-                          title={item.fullName}
-                        >
-                          {item.name}
-                        </div>
-                        <div className="flex items-center justify-between gap-4 mt-1 font-mono text-[11px]">
-                          <span className="text-muted-foreground capitalize">{metric}:</span>
-                          <span className="font-bold text-foreground">
-                            {item.value.toLocaleString()} ({item.share.toFixed(1)}%)
-                          </span>
-                        </div>
-                      </div>
-                    )
-                  }}
+                  content={<SliceTooltipContent />}
                 />
                 <Pie
                   data={slices}
                   dataKey="value"
                   nameKey="name"
-                  innerRadius={55}
-                  outerRadius={80}
+                  innerRadius={38}
+                  outerRadius={82}
                   stroke="none"
                   strokeWidth={0}
+                  animationDuration={500}
+                  animationBegin={0}
                   shape={({
                     index,
                     outerRadius = 0,
@@ -253,7 +274,7 @@ export function DistributionChart({
               <ChartContainer
                 config={chartConfig}
                 className={cn(
-                  "aspect-auto w-full",
+                  "aspect-auto w-full [&_.recharts-surface]:overflow-visible [&_.recharts-cartesian-axis-tick-value]:font-mono",
                   slices.length > 4 ? "h-[145px]" : slices.length > 2 ? "h-[125px]" : "h-[95px]"
                 )}
               >
@@ -276,31 +297,19 @@ export function DistributionChart({
                     tickLine={false}
                     axisLine={false}
                     interval={0}
-                    width={105}
-                    tickMargin={4}
+                    width={108}
+                    tickMargin={6}
+                    tick={{ className: "font-mono fill-muted-foreground text-[11px]" }}
                     tickFormatter={(val) => {
                       const str = String(val)
                       return str.length > 16 ? `${str.slice(0, 15)}…` : str
                     }}
-                    className="text-[11px] font-mono text-muted-foreground"
                   />
                   <ChartTooltip
                     cursor={{ fill: "var(--muted)/40" }}
-                    content={({ active, payload }) => {
-                      if (!active || !payload?.length) return null
-                      const d = payload[0].payload
-                      return (
-                        <div className="rounded-lg bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow ring-1 ring-foreground/10">
-                          <span className="font-medium text-foreground">{d.name}</span>:{" "}
-                          <span className="font-mono font-bold">
-                            {d.value.toLocaleString()}
-                          </span>{" "}
-                          ({d.share.toFixed(1)}%)
-                        </div>
-                      )
-                    }}
+                    content={<SliceTooltipContent />}
                   />
-                  <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]} animationDuration={500}>
                     {slices.map((entry) => (
                       <Cell key={`bar-${entry.key}`} fill={entry.fill} />
                     ))}

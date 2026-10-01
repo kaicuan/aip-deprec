@@ -25,6 +25,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import type { TimeBucketPoint } from "@/lib/api"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 interface UsageChartProps {
   timeBuckets: TimeBucketPoint[]
@@ -73,6 +74,7 @@ export function UsageChart({
   range,
   formatCompact,
 }: UsageChartProps) {
+  const isMobile = useIsMobile()
   const [mode, setMode] = useState<"tokens" | "requests">("tokens")
 
   const rangeLabel =
@@ -143,7 +145,7 @@ export function UsageChart({
         </CardAction>
       </CardHeader>
 
-      <CardContent className="pt-0 -px-2 sm:px-(--card-spacing)">
+      <CardContent className="pt-0">
         {totalRequests === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
             <Layers className="size-8 stroke-1 text-muted-foreground/50 mb-2" />
@@ -153,11 +155,14 @@ export function UsageChart({
             </p>
           </div>
         ) : (
-          <ChartContainer config={activeConfig} className="aspect-auto h-[230px] w-full">
+          <ChartContainer
+            config={activeConfig}
+            className="aspect-auto h-[320px] sm:h-[300px] w-full"
+          >
             <BarChart
               accessibilityLayer
               data={enrichedBuckets}
-              margin={{ left: 8, right: 8, top: 8, bottom: 0 }}
+              margin={{ left: isMobile ? 0 : 8, right: isMobile ? 0 : 8, top: 8, bottom: 28 }}
             >
               <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border/40" />
               <XAxis
@@ -171,6 +176,7 @@ export function UsageChart({
                 className="text-[11px] font-mono"
               />
               <YAxis
+                hide={isMobile}
                 tickLine={false}
                 axisLine={false}
                 tickMargin={8}
@@ -281,53 +287,70 @@ export function UsageChart({
                   )
                 }}
               />
-              <ChartLegend content={<ChartLegendContent />} itemSorter={null} />
+              <ChartLegend
+                content={<ChartLegendContent className="flex-wrap gap-x-4 gap-y-1.5" />}
+                itemSorter={null}
+              />
               {mode === "tokens" ? (
                 <>
                   <Bar
+                    key="fresh_prompt_tokens"
                     dataKey="fresh_prompt_tokens"
                     stackId="a"
                     fill="var(--color-fresh_prompt_tokens)"
                     radius={[0, 0, 0, 0]}
+                    animationDuration={500}
                   />
                   <Bar
+                    key="cached_tokens"
                     dataKey="cached_tokens"
                     stackId="a"
                     fill="var(--color-cached_tokens)"
                     radius={[0, 0, 0, 0]}
+                    animationDuration={500}
                   />
                   <Bar
+                    key="visible_completion_tokens"
                     dataKey="visible_completion_tokens"
                     stackId="a"
                     fill="var(--color-visible_completion_tokens)"
                     radius={[0, 0, 0, 0]}
+                    animationDuration={500}
                   />
                   <Bar
+                    key="reasoning_tokens"
                     dataKey="reasoning_tokens"
                     stackId="a"
                     fill="var(--color-reasoning_tokens)"
                     radius={[3, 3, 0, 0]}
+                    animationDuration={500}
                   />
                 </>
               ) : (
                 <>
                   <Bar
+                    key="success"
                     dataKey="success"
                     stackId="a"
                     fill="var(--color-success)"
                     radius={[0, 0, 0, 0]}
+                    animationDuration={500}
                   />
                   <Bar
+                    key="rate_limited"
                     dataKey="rate_limited"
                     stackId="a"
                     fill="var(--color-rate_limited)"
                     radius={[0, 0, 0, 0]}
+                    animationDuration={500}
                   />
                   <Bar
+                    key="errors"
                     dataKey="errors"
                     stackId="a"
                     fill="var(--color-errors)"
                     radius={[3, 3, 0, 0]}
+                    animationDuration={500}
                   />
                 </>
               )}

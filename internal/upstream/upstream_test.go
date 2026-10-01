@@ -72,4 +72,12 @@ func TestExtractToken(t *testing.T) {
 			}
 		})
 	}
+
+	chunk := `data: {"usage":{"prompt_tokens":17274,"completion_tokens":512,"total_tokens":17786,"prompt_tokens_details":{"cached_tokens":1912},"completion_tokens_details":{"reasoning_tokens":249}}}`
+	if got := extractToken(cachedTokensRegex, chunk, ""); got != 1912 {
+		t.Errorf("extractToken(cachedTokensRegex) = %d, want 1912", got)
+	}
+	if got := extractToken(reasoningTokensRegex, chunk, ""); got != 249 {
+		t.Errorf("extractToken(reasoningTokensRegex) = %d, want 249", got)
+	}
 }

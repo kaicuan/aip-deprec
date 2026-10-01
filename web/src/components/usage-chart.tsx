@@ -35,16 +35,20 @@ interface UsageChartProps {
 
 const tokensConfig = {
   fresh_prompt_tokens: {
-    label: "Input",
+    label: "Input (Uncached)",
     color: "var(--chart-1)",
   },
-  cache_read_tokens: {
+  cached_tokens: {
     label: "Cached",
     color: "var(--chart-2)",
   },
-  completion_tokens: {
+  visible_completion_tokens: {
     label: "Output",
     color: "var(--chart-3)",
+  },
+  reasoning_tokens: {
+    label: "Reasoning",
+    color: "var(--chart-4)",
   },
 } satisfies ChartConfig
 
@@ -83,10 +87,15 @@ export function UsageChart({
   }
 
   const enrichedBuckets = useMemo(() => {
-    return timeBuckets.map((pt) => ({
-      ...pt,
-      fresh_prompt_tokens: Math.max(0, pt.prompt_tokens - pt.cache_read_tokens),
-    }))
+    return timeBuckets.map((pt) => {
+      const cached = pt.cached_tokens ?? 0
+      const reasoning = pt.reasoning_tokens ?? 0
+      return {
+        ...pt,
+        fresh_prompt_tokens: Math.max(0, pt.prompt_tokens - cached),
+        visible_completion_tokens: Math.max(0, pt.completion_tokens - reasoning),
+      }
+    })
   }, [timeBuckets])
 
   const activeConfig = mode === "tokens" ? tokensConfig : requestsConfig
@@ -174,7 +183,7 @@ export function UsageChart({
                 cursor={{ fill: "var(--muted)/30" }}
                 content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null
-                  const pt = payload[0].payload as TimeBucketPoint & { fresh_prompt_tokens: number }
+                  const pt = payload[0].payload as TimeBucketPoint & { fresh_prompt_tokens: number; visible_completion_tokens: number }
 
                   if (mode === "tokens") {
                     const total = pt.total_tokens || (pt.prompt_tokens + pt.completion_tokens)
@@ -184,29 +193,38 @@ export function UsageChart({
                         <div className="grid gap-1">
                           <div className="flex items-center justify-between gap-3">
                             <span className="flex items-center gap-1.5 text-muted-foreground">
-                              <span className="size-2 rounded-[2px]" style={{ backgroundColor: "var(--chart-1)" }} />
-                              Input
+                              <span className="size-2 rounded-[2px]" style={{ backgroundColor: tokensConfig.fresh_prompt_tokens.color }} />
+                              Input (Uncached)
                             </span>
                             <span className="font-mono font-medium text-foreground">
-                              {pt.prompt_tokens.toLocaleString()}
+                              {pt.fresh_prompt_tokens.toLocaleString()}
                             </span>
                           </div>
                           <div className="flex items-center justify-between gap-3">
                             <span className="flex items-center gap-1.5 text-muted-foreground">
-                              <span className="size-2 rounded-[2px]" style={{ backgroundColor: "var(--chart-3)" }} />
+                              <span className="size-2 rounded-[2px]" style={{ backgroundColor: tokensConfig.cached_tokens.color }} />
                               Cached
                             </span>
                             <span className="font-mono font-medium text-foreground">
-                              {pt.cache_read_tokens.toLocaleString()}
+                              {(pt.cached_tokens ?? 0).toLocaleString()}
                             </span>
                           </div>
                           <div className="flex items-center justify-between gap-3">
                             <span className="flex items-center gap-1.5 text-muted-foreground">
-                              <span className="size-2 rounded-[2px]" style={{ backgroundColor: "var(--chart-2)" }} />
+                              <span className="size-2 rounded-[2px]" style={{ backgroundColor: tokensConfig.visible_completion_tokens.color }} />
                               Output
                             </span>
                             <span className="font-mono font-medium text-foreground">
-                              {pt.completion_tokens.toLocaleString()}
+                              {pt.visible_completion_tokens.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="flex items-center gap-1.5 text-muted-foreground">
+                              <span className="size-2 rounded-[2px]" style={{ backgroundColor: tokensConfig.reasoning_tokens.color }} />
+                              Reasoning
+                            </span>
+                            <span className="font-mono font-medium text-foreground">
+                              {(pt.reasoning_tokens ?? 0).toLocaleString()}
                             </span>
                           </div>
                           <div className="flex items-center justify-between gap-3 pt-1 border-t border-border/60 text-[11px]">
@@ -227,7 +245,7 @@ export function UsageChart({
                       <div className="grid gap-1">
                         <div className="flex items-center justify-between gap-3">
                           <span className="flex items-center gap-1.5 text-muted-foreground">
-                            <span className="size-2 rounded-[2px]" style={{ backgroundColor: "var(--success)" }} />
+                            <span className="size-2 rounded-[2px]" style={{ backgroundColor: requestsConfig.success.color }} />
                             Success (2xx)
                           </span>
                           <span className="font-mono font-medium text-foreground">
@@ -236,7 +254,7 @@ export function UsageChart({
                         </div>
                         <div className="flex items-center justify-between gap-3">
                           <span className="flex items-center gap-1.5 text-muted-foreground">
-                            <span className="size-2 rounded-[2px]" style={{ backgroundColor: "var(--warning)" }} />
+                            <span className="size-2 rounded-[2px]" style={{ backgroundColor: requestsConfig.rate_limited.color }} />
                             Rate Limited (429)
                           </span>
                           <span className="font-mono font-medium text-foreground">
@@ -245,7 +263,7 @@ export function UsageChart({
                         </div>
                         <div className="flex items-center justify-between gap-3">
                           <span className="flex items-center gap-1.5 text-muted-foreground">
-                            <span className="size-2 rounded-[2px]" style={{ backgroundColor: "var(--destructive)" }} />
+                            <span className="size-2 rounded-[2px]" style={{ backgroundColor: requestsConfig.errors.color }} />
                             Errors
                           </span>
                           <span className="font-mono font-medium text-foreground">
@@ -273,15 +291,21 @@ export function UsageChart({
                     radius={[0, 0, 0, 0]}
                   />
                   <Bar
-                    dataKey="cache_read_tokens"
+                    dataKey="cached_tokens"
                     stackId="a"
-                    fill="var(--color-cache_read_tokens)"
+                    fill="var(--color-cached_tokens)"
                     radius={[0, 0, 0, 0]}
                   />
                   <Bar
-                    dataKey="completion_tokens"
+                    dataKey="visible_completion_tokens"
                     stackId="a"
-                    fill="var(--color-completion_tokens)"
+                    fill="var(--color-visible_completion_tokens)"
+                    radius={[0, 0, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="reasoning_tokens"
+                    stackId="a"
+                    fill="var(--color-reasoning_tokens)"
                     radius={[3, 3, 0, 0]}
                   />
                 </>

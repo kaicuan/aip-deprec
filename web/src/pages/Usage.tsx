@@ -162,8 +162,9 @@ export function UsagePage() {
                   <TableHead>Status</TableHead>
                   <TableHead>Latency</TableHead>
                   <TableHead>Prompt</TableHead>
+                  <TableHead>Cached</TableHead>
                   <TableHead>Completion</TableHead>
-                  <TableHead>Cache Read</TableHead>
+                  <TableHead>Reasoning</TableHead>
                   <TableHead>Proxy Egress</TableHead>
                   <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
@@ -205,12 +206,21 @@ export function UsagePage() {
                           {log.prompt_tokens.toLocaleString()}
                         </TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">
+                          {(log.cached_tokens ?? 0) > 0 ? (
+                            <Badge variant="outline" className="border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-mono text-[10px]">
+                              {(log.cached_tokens ?? 0).toLocaleString()}
+                            </Badge>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">
                           {log.completion_tokens.toLocaleString()}
                         </TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">
-                          {log.cache_read_tokens > 0 ? (
-                            <Badge variant="outline" className="border-emerald-500/30 text-emerald-600 dark:text-emerald-400 font-mono text-[10px]">
-                              {log.cache_read_tokens.toLocaleString()}
+                          {(log.reasoning_tokens ?? 0) > 0 ? (
+                            <Badge variant="outline" className="border-purple-500/30 text-purple-600 dark:text-purple-400 font-mono text-[10px]">
+                              {(log.reasoning_tokens ?? 0).toLocaleString()}
                             </Badge>
                           ) : (
                             "—"
@@ -227,7 +237,7 @@ export function UsagePage() {
                   })
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
+                    <TableCell colSpan={10} className="h-32 text-center text-muted-foreground">
                       No logs found.
                     </TableCell>
                   </TableRow>
@@ -320,14 +330,38 @@ export function UsagePage() {
                     <span className="font-semibold text-foreground">{selectedLog.duration_ms}ms</span>
                   </div>
                   <div>
-                    <span className="text-muted-foreground block text-[10px] uppercase">Tokens</span>
+                    <span className="text-muted-foreground block text-[10px] uppercase">Total Tokens</span>
                     <span className="font-semibold text-foreground">
-                      {selectedLog.prompt_tokens + selectedLog.completion_tokens}
+                      {(selectedLog.prompt_tokens + selectedLog.completion_tokens).toLocaleString()}
                     </span>
                   </div>
                   <div>
                     <span className="text-muted-foreground block text-[10px] uppercase">Stream</span>
                     <span className="font-semibold text-foreground">{selectedLog.is_stream ? "Yes" : "No"}</span>
+                  </div>
+                </div>
+
+                {/* Token breakdown stats */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-xl border border-border bg-card p-3 font-mono text-xs">
+                  <div>
+                    <span className="text-muted-foreground block text-[10px] uppercase">Prompt</span>
+                    <span className="font-semibold text-foreground">{selectedLog.prompt_tokens.toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block text-[10px] uppercase">Cached</span>
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                      {(selectedLog.cached_tokens ?? 0).toLocaleString()}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block text-[10px] uppercase">Completion</span>
+                    <span className="font-semibold text-foreground">{selectedLog.completion_tokens.toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground block text-[10px] uppercase">Reasoning</span>
+                    <span className="font-semibold text-purple-600 dark:text-purple-400">
+                      {(selectedLog.reasoning_tokens ?? 0).toLocaleString()}
+                    </span>
                   </div>
                 </div>
 

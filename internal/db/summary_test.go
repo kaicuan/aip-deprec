@@ -25,7 +25,8 @@ func TestGetUsageSummary(t *testing.T) {
 		DurationMs:       450,
 		PromptTokens:     100,
 		CompletionTokens: 50,
-		CacheReadTokens:  20,
+		CachedTokens:     20,
+		ReasoningTokens:  10,
 		EstimatedSavings: 0.05,
 	}
 	log2 := &RequestLog{
@@ -36,7 +37,8 @@ func TestGetUsageSummary(t *testing.T) {
 		DurationMs:       120,
 		PromptTokens:     80,
 		CompletionTokens: 0,
-		CacheReadTokens:  0,
+		CachedTokens:     0,
+		ReasoningTokens:  0,
 		EstimatedSavings: 0.0,
 	}
 	if err := database.InsertRequestLog(log1); err != nil {

@@ -11,7 +11,8 @@ type TimeBucketPoint struct {
 	PromptTokens     int64  `json:"prompt_tokens"`
 	CompletionTokens int64  `json:"completion_tokens"`
 	TotalTokens      int64  `json:"total_tokens"`
-	CacheReadTokens  int64  `json:"cache_read_tokens"`
+	CachedTokens     int64  `json:"cached_tokens"`
+	ReasoningTokens  int64  `json:"reasoning_tokens"`
 	Success          int64  `json:"success"`
 	RateLimited      int64  `json:"rate_limited"`
 	Errors           int64  `json:"errors"`
@@ -26,7 +27,8 @@ type UsageSummary struct {
 	TotalTokens           int64             `json:"total_tokens"`
 	TotalPromptTokens     int64             `json:"total_prompt_tokens"`
 	TotalCompletionTokens int64             `json:"total_completion_tokens"`
-	TotalCacheReadTokens  int64             `json:"total_cache_read_tokens"`
+	TotalCachedTokens     int64             `json:"total_cached_tokens"`
+	TotalReasoningTokens  int64             `json:"total_reasoning_tokens"`
 	CacheHitRate          float64           `json:"cache_hit_rate"`
 	AvgTokensPerRequest   float64           `json:"avg_tokens_per_request"`
 	RPM                   float64           `json:"rpm"`
@@ -133,20 +135,22 @@ func (d *DB) GetUsageSummary(rangeStr string) (*UsageSummary, error) {
 	row := d.db.QueryRow(`SELECT COUNT(*),
 		COALESCE(SUM(prompt_tokens), 0),
 		COALESCE(SUM(completion_tokens), 0),
-		COALESCE(SUM(cache_read_tokens), 0),
+		COALESCE(SUM(cached_tokens), 0),
+		COALESCE(SUM(reasoning_tokens), 0),
 		COALESCE(SUM(estimated_savings), 0),
 		COALESCE(AVG(duration_ms), 0)
 		FROM request_logs WHERE timestamp >= ?`, cutoff)
-	var totalReqs, promptTokens, compTokens, cacheTokens int64
+	var totalReqs, promptTokens, compTokens, cacheTokens, reasoningTokens int64
 	var estimatedSavings, avgLatency float64
-	if err := row.Scan(&totalReqs, &promptTokens, &compTokens, &cacheTokens, &estimatedSavings, &avgLatency); err == nil {
+	if err := row.Scan(&totalReqs, &promptTokens, &compTokens, &cacheTokens, &reasoningTokens, &estimatedSavings, &avgLatency); err == nil {
 		summary.TotalRequests = totalReqs
 		if totalReqs > 0 {
 			summary.AvgTokensPerRequest = float64(promptTokens+compTokens) / float64(totalReqs)
 		}
 		summary.TotalPromptTokens = promptTokens
 		summary.TotalCompletionTokens = compTokens
-		summary.TotalCacheReadTokens = cacheTokens
+		summary.TotalCachedTokens = cacheTokens
+		summary.TotalReasoningTokens = reasoningTokens
 		summary.TotalTokens = promptTokens + compTokens
 		summary.EstimatedSavings = estimatedSavings
 		summary.AvgLatencyMs = int64(avgLatency)
@@ -166,7 +170,8 @@ func (d *DB) GetUsageSummary(rangeStr string) (*UsageSummary, error) {
 		(timestamp / ?) * ? AS bkey,
 		COALESCE(SUM(prompt_tokens), 0),
 		COALESCE(SUM(completion_tokens), 0),
-		COALESCE(SUM(cache_read_tokens), 0),
+		COALESCE(SUM(cached_tokens), 0),
+		COALESCE(SUM(reasoning_tokens), 0),
 		COUNT(*),
 		COALESCE(SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END), 0),
 		COALESCE(SUM(CASE WHEN status_code = 429 THEN 1 ELSE 0 END), 0),
@@ -179,14 +184,15 @@ func (d *DB) GetUsageSummary(rangeStr string) (*UsageSummary, error) {
 		defer tRows.Close()
 		for tRows.Next() {
 			var bkey int64
-			var pTokens, cTokens, cacheTokens, reqs, succ, rateLim, errs int64
+			var pTokens, cTokens, cacheTokens, reasonTokens, reqs, succ, rateLim, errs int64
 			var avgLat float64
-			if err := tRows.Scan(&bkey, &pTokens, &cTokens, &cacheTokens, &reqs, &succ, &rateLim, &errs, &avgLat); err == nil {
+			if err := tRows.Scan(&bkey, &pTokens, &cTokens, &cacheTokens, &reasonTokens, &reqs, &succ, &rateLim, &errs, &avgLat); err == nil {
 				if idx, exists := bucketIndexMap[bkey]; exists {
 					summary.TimeBuckets[idx].PromptTokens = pTokens
 					summary.TimeBuckets[idx].CompletionTokens = cTokens
 					summary.TimeBuckets[idx].TotalTokens = pTokens + cTokens
-					summary.TimeBuckets[idx].CacheReadTokens = cacheTokens
+					summary.TimeBuckets[idx].CachedTokens = cacheTokens
+					summary.TimeBuckets[idx].ReasoningTokens = reasonTokens
 					summary.TimeBuckets[idx].TotalRequests = reqs
 					summary.TimeBuckets[idx].Success = succ
 					summary.TimeBuckets[idx].RateLimited = rateLim

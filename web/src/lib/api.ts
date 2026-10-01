@@ -42,7 +42,8 @@ export interface RequestLogItem {
   duration_ms: number
   prompt_tokens: number
   completion_tokens: number
-  cache_read_tokens: number
+  cached_tokens: number
+  reasoning_tokens: number
   error_message: string
   is_stream: number
   session_id: string
@@ -57,7 +58,8 @@ export interface TimeBucketPoint {
   prompt_tokens: number
   completion_tokens: number
   total_tokens: number
-  cache_read_tokens: number
+  cached_tokens: number
+  reasoning_tokens: number
   success: number
   rate_limited: number
   errors: number
@@ -72,7 +74,8 @@ export interface UsageSummary {
   total_tokens: number
   total_prompt_tokens: number
   total_completion_tokens: number
-  total_cache_read_tokens: number
+  total_cached_tokens: number
+  total_reasoning_tokens: number
   cache_hit_rate: number
   avg_tokens_per_request: number
   rpm: number

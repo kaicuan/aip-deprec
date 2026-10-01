@@ -37,6 +37,7 @@ type chatRequestSnippet struct {
 var promptTokensRegex = regexp.MustCompile(`"(?:prompt_tokens|input_tokens)"\s*:\s*(\d+)`)
 var compTokensRegex = regexp.MustCompile(`"(?:completion_tokens|output_tokens)"\s*:\s*(\d+)`)
 var cachedTokensRegex = regexp.MustCompile(`"(?:cached_tokens|cache_read_input_tokens)"\s*:\s*(\d+)`)
+var reasoningTokensRegex = regexp.MustCompile(`"reasoning_tokens"\s*:\s*(\d+)`)
 
 func copyHeaderWithoutHopByHop(dst, src http.Header) {
 	for k, vv := range src {
@@ -258,6 +259,7 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 	promptTokens := extractToken(promptTokensRegex, checkStr, capturedStr)
 	compTokens := extractToken(compTokensRegex, checkStr, capturedStr)
 	cachedTokens := extractToken(cachedTokensRegex, checkStr, capturedStr)
+	reasoningTokens := extractToken(reasoningTokensRegex, checkStr, capturedStr)
 
 	isStream := 0
 	if reqSnippet.Stream || strings.Contains(lastResp.Header.Get("Content-Type"), "text/event-stream") {
@@ -279,7 +281,8 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 		DurationMs:       durationMs,
 		PromptTokens:     promptTokens,
 		CompletionTokens: compTokens,
-		CacheReadTokens:  cachedTokens,
+		CachedTokens:     cachedTokens,
+		ReasoningTokens:  reasoningTokens,
 		IsStream:         isStream,
 		RequestBody:      string(bodyBytes),
 		ResponseBody:     capturedStr,

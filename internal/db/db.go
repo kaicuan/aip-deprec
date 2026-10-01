@@ -76,7 +76,8 @@ func (d *DB) initSchema() error {
 			duration_ms INTEGER NOT NULL,
 			prompt_tokens INTEGER NOT NULL DEFAULT 0,
 			completion_tokens INTEGER NOT NULL DEFAULT 0,
-			cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+			cached_tokens INTEGER NOT NULL DEFAULT 0,
+			reasoning_tokens INTEGER NOT NULL DEFAULT 0,
 			error_message TEXT NOT NULL DEFAULT '',
 			is_stream INTEGER NOT NULL DEFAULT 0,
 			session_id TEXT NOT NULL DEFAULT '',
@@ -92,7 +93,8 @@ func (d *DB) initSchema() error {
 			return err
 		}
 	}
-	_ = d.addColumnIfNotExists("request_logs", "cache_read_tokens", "INTEGER NOT NULL DEFAULT 0")
+	_ = d.addColumnIfNotExists("request_logs", "cached_tokens", "INTEGER NOT NULL DEFAULT 0")
+	_ = d.addColumnIfNotExists("request_logs", "reasoning_tokens", "INTEGER NOT NULL DEFAULT 0")
 	_ = d.addColumnIfNotExists("request_logs", "session_id", "TEXT NOT NULL DEFAULT ''")
 	_ = d.addColumnIfNotExists("request_logs", "request_body", "TEXT NOT NULL DEFAULT ''")
 	_ = d.addColumnIfNotExists("request_logs", "response_body", "TEXT NOT NULL DEFAULT ''")

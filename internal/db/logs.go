@@ -11,6 +11,7 @@ type RequestLog struct {
 	ProxyURL         string  `json:"proxy_url"`
 	StatusCode       int     `json:"status_code"`
 	DurationMs       int     `json:"duration_ms"`
+	TTFTMs           int     `json:"ttft_ms"`
 	PromptTokens     int     `json:"prompt_tokens"`
 	CompletionTokens int     `json:"completion_tokens"`
 	CachedTokens     int     `json:"cached_tokens"`
@@ -30,9 +31,9 @@ func (d *DB) InsertRequestLog(log *RequestLog) error {
 	if log.Timestamp == 0 {
 		log.Timestamp = time.Now().Unix()
 	}
-	res, err := d.db.Exec(`INSERT INTO request_logs (timestamp, model, proxy_url, status_code, duration_ms, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, error_message, is_stream, session_id, request_body, response_body, estimated_savings)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		log.Timestamp, log.Model, log.ProxyURL, log.StatusCode, log.DurationMs, log.PromptTokens, log.CompletionTokens, log.CachedTokens, log.ReasoningTokens, log.ErrorMessage, log.IsStream, log.SessionID, log.RequestBody, log.ResponseBody, log.EstimatedSavings)
+	res, err := d.db.Exec(`INSERT INTO request_logs (timestamp, model, proxy_url, status_code, duration_ms, ttft_ms, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, error_message, is_stream, session_id, request_body, response_body, estimated_savings)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		log.Timestamp, log.Model, log.ProxyURL, log.StatusCode, log.DurationMs, log.TTFTMs, log.PromptTokens, log.CompletionTokens, log.CachedTokens, log.ReasoningTokens, log.ErrorMessage, log.IsStream, log.SessionID, log.RequestBody, log.ResponseBody, log.EstimatedSavings)
 	if err != nil {
 		return err
 	}
@@ -55,7 +56,7 @@ func (d *DB) ListRequestLogs(limit, offset int) ([]*RequestLog, int, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := d.db.Query(`SELECT id, timestamp, model, proxy_url, status_code, duration_ms, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, error_message, is_stream, session_id, estimated_savings
+	rows, err := d.db.Query(`SELECT id, timestamp, model, proxy_url, status_code, duration_ms, ttft_ms, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, error_message, is_stream, session_id, estimated_savings
 		FROM request_logs ORDER BY id DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		return nil, 0, err
@@ -65,7 +66,7 @@ func (d *DB) ListRequestLogs(limit, offset int) ([]*RequestLog, int, error) {
 	var logs []*RequestLog
 	for rows.Next() {
 		var l RequestLog
-		if err := rows.Scan(&l.ID, &l.Timestamp, &l.Model, &l.ProxyURL, &l.StatusCode, &l.DurationMs, &l.PromptTokens, &l.CompletionTokens, &l.CachedTokens, &l.ReasoningTokens, &l.ErrorMessage, &l.IsStream, &l.SessionID, &l.EstimatedSavings); err != nil {
+		if err := rows.Scan(&l.ID, &l.Timestamp, &l.Model, &l.ProxyURL, &l.StatusCode, &l.DurationMs, &l.TTFTMs, &l.PromptTokens, &l.CompletionTokens, &l.CachedTokens, &l.ReasoningTokens, &l.ErrorMessage, &l.IsStream, &l.SessionID, &l.EstimatedSavings); err != nil {
 			return nil, 0, err
 		}
 		logs = append(logs, &l)
@@ -78,9 +79,9 @@ func (d *DB) GetRequestLog(id int64) (*RequestLog, error) {
 	defer d.mu.RUnlock()
 
 	var l RequestLog
-	err := d.db.QueryRow(`SELECT id, timestamp, model, proxy_url, status_code, duration_ms, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, error_message, is_stream, session_id, request_body, response_body, estimated_savings
+	err := d.db.QueryRow(`SELECT id, timestamp, model, proxy_url, status_code, duration_ms, ttft_ms, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, error_message, is_stream, session_id, request_body, response_body, estimated_savings
 		FROM request_logs WHERE id = ?`, id).
-		Scan(&l.ID, &l.Timestamp, &l.Model, &l.ProxyURL, &l.StatusCode, &l.DurationMs, &l.PromptTokens, &l.CompletionTokens, &l.CachedTokens, &l.ReasoningTokens, &l.ErrorMessage, &l.IsStream, &l.SessionID, &l.RequestBody, &l.ResponseBody, &l.EstimatedSavings)
+		Scan(&l.ID, &l.Timestamp, &l.Model, &l.ProxyURL, &l.StatusCode, &l.DurationMs, &l.TTFTMs, &l.PromptTokens, &l.CompletionTokens, &l.CachedTokens, &l.ReasoningTokens, &l.ErrorMessage, &l.IsStream, &l.SessionID, &l.RequestBody, &l.ResponseBody, &l.EstimatedSavings)
 	if err != nil {
 		return nil, err
 	}

@@ -182,6 +182,7 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 			ProxyURL:     proxyURL,
 			StatusCode:   http.StatusBadGateway,
 			DurationMs:   durationMs,
+			TTFTMs:       0,
 			ErrorMessage: errMsg,
 			RequestBody:  string(bodyBytes),
 		})
@@ -208,6 +209,7 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 			ProxyURL:     proxyURL,
 			StatusCode:   http.StatusTooManyRequests,
 			DurationMs:   durationMs,
+			TTFTMs:       durationMs,
 			ErrorMessage: string(finalBodyBytes),
 			RequestBody:  string(bodyBytes),
 			ResponseBody: string(finalBodyBytes),
@@ -223,10 +225,14 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 	buf := make([]byte, 4096)
 	var capturedOutput bytes.Buffer
 	var tailOutput bytes.Buffer
+	var ttftMs int
 
 	for {
 		n, rErr := lastResp.Body.Read(buf)
 		if n > 0 {
+			if ttftMs == 0 {
+				ttftMs = int(time.Since(startTime).Milliseconds())
+			}
 			chunk := buf[:n]
 			_, _ = w.Write(chunk)
 			if isFlusher {
@@ -248,6 +254,9 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 	}
 
 	durationMs := int(time.Since(startTime).Milliseconds())
+	if ttftMs == 0 && lastResp.StatusCode >= 200 && lastResp.StatusCode < 300 {
+		ttftMs = durationMs
+	}
 	capturedStr := capturedOutput.String()
 	tailStr := tailOutput.String()
 
@@ -279,6 +288,7 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 		ProxyURL:         proxyURL,
 		StatusCode:       lastResp.StatusCode,
 		DurationMs:       durationMs,
+		TTFTMs:           ttftMs,
 		PromptTokens:     promptTokens,
 		CompletionTokens: compTokens,
 		CachedTokens:     cachedTokens,

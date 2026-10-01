@@ -74,6 +74,7 @@ func (d *DB) initSchema() error {
 			proxy_url TEXT NOT NULL,
 			status_code INTEGER NOT NULL,
 			duration_ms INTEGER NOT NULL,
+			ttft_ms INTEGER NOT NULL DEFAULT 0,
 			prompt_tokens INTEGER NOT NULL DEFAULT 0,
 			completion_tokens INTEGER NOT NULL DEFAULT 0,
 			cached_tokens INTEGER NOT NULL DEFAULT 0,
@@ -93,6 +94,7 @@ func (d *DB) initSchema() error {
 			return err
 		}
 	}
+	_ = d.addColumnIfNotExists("request_logs", "ttft_ms", "INTEGER NOT NULL DEFAULT 0")
 	_ = d.addColumnIfNotExists("request_logs", "cached_tokens", "INTEGER NOT NULL DEFAULT 0")
 	_ = d.addColumnIfNotExists("request_logs", "reasoning_tokens", "INTEGER NOT NULL DEFAULT 0")
 	_ = d.addColumnIfNotExists("request_logs", "session_id", "TEXT NOT NULL DEFAULT ''")

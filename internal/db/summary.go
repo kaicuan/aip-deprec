@@ -17,6 +17,8 @@ type TimeBucketPoint struct {
 	RateLimited      int64  `json:"rate_limited"`
 	Errors           int64  `json:"errors"`
 	TotalRequests    int64  `json:"total_requests"`
+	AvgDurationMs    int64  `json:"avg_duration_ms"`
+	AvgTTFTMs        int64  `json:"avg_ttft_ms"`
 	AvgLatencyMs     int64  `json:"avg_latency_ms"`
 }
 
@@ -34,6 +36,8 @@ type UsageSummary struct {
 	RPM                   float64           `json:"rpm"`
 	TPM                   float64           `json:"tpm"`
 	EstimatedSavings      float64           `json:"estimated_savings"`
+	AvgDurationMs         int64             `json:"avg_duration_ms"`
+	AvgTTFTMs             int64             `json:"avg_ttft_ms"`
 	AvgLatencyMs          int64             `json:"avg_latency_ms"`
 	ModelUsage            map[string]int64  `json:"model_usage"`
 	ModelTokens           map[string]int64  `json:"model_tokens"`
@@ -138,11 +142,12 @@ func (d *DB) GetUsageSummary(rangeStr string) (*UsageSummary, error) {
 		COALESCE(SUM(cached_tokens), 0),
 		COALESCE(SUM(reasoning_tokens), 0),
 		COALESCE(SUM(estimated_savings), 0),
-		COALESCE(AVG(duration_ms), 0)
+		COALESCE(AVG(duration_ms), 0),
+		COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms ELSE NULL END), 0)
 		FROM request_logs WHERE timestamp >= ?`, cutoff)
 	var totalReqs, promptTokens, compTokens, cacheTokens, reasoningTokens int64
-	var estimatedSavings, avgLatency float64
-	if err := row.Scan(&totalReqs, &promptTokens, &compTokens, &cacheTokens, &reasoningTokens, &estimatedSavings, &avgLatency); err == nil {
+	var estimatedSavings, avgDuration, avgTTFT float64
+	if err := row.Scan(&totalReqs, &promptTokens, &compTokens, &cacheTokens, &reasoningTokens, &estimatedSavings, &avgDuration, &avgTTFT); err == nil {
 		summary.TotalRequests = totalReqs
 		if totalReqs > 0 {
 			summary.AvgTokensPerRequest = float64(promptTokens+compTokens) / float64(totalReqs)
@@ -153,7 +158,9 @@ func (d *DB) GetUsageSummary(rangeStr string) (*UsageSummary, error) {
 		summary.TotalReasoningTokens = reasoningTokens
 		summary.TotalTokens = promptTokens + compTokens
 		summary.EstimatedSavings = estimatedSavings
-		summary.AvgLatencyMs = int64(avgLatency)
+		summary.AvgDurationMs = int64(avgDuration)
+		summary.AvgTTFTMs = int64(avgTTFT)
+		summary.AvgLatencyMs = int64(avgDuration)
 
 		if promptTokens > 0 {
 			summary.CacheHitRate = float64(cacheTokens) / float64(promptTokens) * 100.0
@@ -176,7 +183,8 @@ func (d *DB) GetUsageSummary(rangeStr string) (*UsageSummary, error) {
 		COALESCE(SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END), 0),
 		COALESCE(SUM(CASE WHEN status_code = 429 THEN 1 ELSE 0 END), 0),
 		COALESCE(SUM(CASE WHEN status_code != 429 AND (status_code < 200 OR status_code >= 300) THEN 1 ELSE 0 END), 0),
-		COALESCE(AVG(duration_ms), 0)
+		COALESCE(AVG(duration_ms), 0),
+		COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms ELSE NULL END), 0)
 		FROM request_logs WHERE timestamp >= ?
 		GROUP BY bkey`
 
@@ -185,8 +193,8 @@ func (d *DB) GetUsageSummary(rangeStr string) (*UsageSummary, error) {
 		for tRows.Next() {
 			var bkey int64
 			var pTokens, cTokens, cacheTokens, reasonTokens, reqs, succ, rateLim, errs int64
-			var avgLat float64
-			if err := tRows.Scan(&bkey, &pTokens, &cTokens, &cacheTokens, &reasonTokens, &reqs, &succ, &rateLim, &errs, &avgLat); err == nil {
+			var avgDur, avgTTFT float64
+			if err := tRows.Scan(&bkey, &pTokens, &cTokens, &cacheTokens, &reasonTokens, &reqs, &succ, &rateLim, &errs, &avgDur, &avgTTFT); err == nil {
 				if idx, exists := bucketIndexMap[bkey]; exists {
 					summary.TimeBuckets[idx].PromptTokens = pTokens
 					summary.TimeBuckets[idx].CompletionTokens = cTokens
@@ -197,7 +205,9 @@ func (d *DB) GetUsageSummary(rangeStr string) (*UsageSummary, error) {
 					summary.TimeBuckets[idx].Success = succ
 					summary.TimeBuckets[idx].RateLimited = rateLim
 					summary.TimeBuckets[idx].Errors = errs
-					summary.TimeBuckets[idx].AvgLatencyMs = int64(avgLat)
+					summary.TimeBuckets[idx].AvgDurationMs = int64(avgDur)
+					summary.TimeBuckets[idx].AvgTTFTMs = int64(avgTTFT)
+					summary.TimeBuckets[idx].AvgLatencyMs = int64(avgDur)
 				}
 			}
 		}

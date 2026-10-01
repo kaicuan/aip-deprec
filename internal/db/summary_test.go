@@ -23,6 +23,7 @@ func TestGetUsageSummary(t *testing.T) {
 		ProxyURL:         "socks5://proxy1:1080",
 		StatusCode:       200,
 		DurationMs:       450,
+		TTFTMs:           150,
 		PromptTokens:     100,
 		CompletionTokens: 50,
 		CachedTokens:     20,

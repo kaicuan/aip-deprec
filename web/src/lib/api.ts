@@ -40,6 +40,7 @@ export interface RequestLogItem {
   proxy_url: string
   status_code: number
   duration_ms: number
+  ttft_ms: number
   prompt_tokens: number
   completion_tokens: number
   cached_tokens: number
@@ -64,6 +65,8 @@ export interface TimeBucketPoint {
   rate_limited: number
   errors: number
   total_requests: number
+  avg_duration_ms?: number
+  avg_ttft_ms?: number
   avg_latency_ms: number
 }
 
@@ -81,6 +84,8 @@ export interface UsageSummary {
   rpm: number
   tpm: number
   estimated_savings: number
+  avg_duration_ms?: number
+  avg_ttft_ms?: number
   avg_latency_ms: number
   model_usage: Record<string, number>
   model_tokens?: Record<string, number>

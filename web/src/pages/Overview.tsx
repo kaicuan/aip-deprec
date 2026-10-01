@@ -170,7 +170,7 @@ export function OverviewPage() {
           </CardContent>
         </Card>
 
-        {/* Card 3: Average Latency */}
+        {/* Card 3: Average Latency (TTFT) */}
         <Card className="relative overflow-hidden transition-all hover:shadow-md">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -182,9 +182,12 @@ export function OverviewPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold tracking-tight text-foreground font-mono">
-              {summary && summary.avg_latency_ms > 0 ? (
+              {summary && ((summary.avg_ttft_ms && summary.avg_ttft_ms > 0) ? summary.avg_ttft_ms : summary.avg_latency_ms) > 0 ? (
                 <>
-                  {summary.avg_latency_ms.toLocaleString()}{" "}
+                  {((summary.avg_ttft_ms && summary.avg_ttft_ms > 0)
+                    ? summary.avg_ttft_ms
+                    : summary.avg_latency_ms
+                  ).toLocaleString()}{" "}
                   <span className="text-sm font-normal text-muted-foreground font-sans">
                     ms
                   </span>
@@ -194,7 +197,7 @@ export function OverviewPage() {
               )}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              Gateway round-trip response time
+              Time to first token (TTFT)
             </p>
           </CardContent>
         </Card>

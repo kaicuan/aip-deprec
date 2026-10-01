@@ -160,7 +160,7 @@ export function UsagePage() {
                   <TableHead className="w-[160px]">Timestamp</TableHead>
                   <TableHead>Model</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Latency</TableHead>
+                  <TableHead>Duration / Latency</TableHead>
                   <TableHead>Prompt</TableHead>
                   <TableHead>Cached</TableHead>
                   <TableHead>Completion</TableHead>
@@ -200,7 +200,18 @@ export function UsagePage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">
-                          {log.duration_ms}ms
+                          <div className="flex flex-col">
+                            <span>
+                              {log.duration_ms >= 1000
+                                ? `${(log.duration_ms / 1000).toFixed(2)}s`
+                                : `${log.duration_ms}ms`}
+                            </span>
+                            {log.ttft_ms > 0 && (
+                              <span className="text-[10px] text-muted-foreground/70">
+                                {log.ttft_ms}ms latency
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">
                           {log.prompt_tokens.toLocaleString()}

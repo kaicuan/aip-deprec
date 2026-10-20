@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -92,11 +93,15 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 	var lastErr error
 	var finalBodyBytes []byte
 
-	// Try with failover
-	maxRetries := 3
+	// Try with failover across all online proxies in the pool
 	triedIDs := make(map[int64]bool)
 
-	for attempt := 0; attempt <= maxRetries; attempt++ {
+	for attempt := 0; ; attempt++ {
+		if r.Context().Err() != nil {
+			lastErr = r.Context().Err()
+			break
+		}
+
 		var selectedProxy *db.Proxy
 		if attempt == 0 {
 			selectedProxy, err = u.pool.GetNextProxy()
@@ -110,6 +115,9 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 		}
 
 		if err != nil || selectedProxy == nil {
+			if lastErr == nil && err != nil {
+				lastErr = err
+			}
 			break
 		}
 		lastProxy = selectedProxy
@@ -126,7 +134,14 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 			Timeout:   0, // No client-level timeout for streaming
 		}
 
-		outReq, reqErr := http.NewRequestWithContext(r.Context(), r.Method, targetURL, bytes.NewReader(bodyBytes))
+		var reqURL string
+		if selectedProxy.Protocol == "relay" {
+			reqURL = selectedProxy.URL
+		} else {
+			reqURL = targetURL
+		}
+
+		outReq, reqErr := http.NewRequestWithContext(r.Context(), r.Method, reqURL, bytes.NewReader(bodyBytes))
 		if reqErr != nil {
 			lastErr = reqErr
 			break
@@ -135,12 +150,31 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 		// Copy headers
 		copyHeaderWithoutHopByHop(outReq.Header, r.Header)
 
-		// Inject Authorization: Bearer public & Host header
+		// Inject Authorization: Bearer public
 		outReq.Header.Set("Authorization", "Bearer public")
-		outReq.Host = "opencode.ai"
+
+		if selectedProxy.Protocol == "relay" {
+			uBase, pErr := url.Parse(u.baseURL)
+			relayTarget := "https://opencode.ai"
+			relayPathPrefix := "/zen/v1"
+			if pErr == nil && uBase.Host != "" {
+				relayTarget = uBase.Scheme + "://" + uBase.Host
+				relayPathPrefix = uBase.Path
+			}
+			relayPath := strings.TrimRight(relayPathPrefix, "/") + "/" + strings.TrimLeft(pathSuffix, "/")
+			outReq.Header.Set("x-relay-target", relayTarget)
+			outReq.Header.Set("x-relay-path", relayPath)
+			outReq.Host = selectedProxy.Host
+		} else {
+			outReq.Host = "opencode.ai"
+		}
 
 		resp, doErr := client.Do(outReq)
 		if doErr != nil {
+			if r.Context().Err() != nil {
+				lastErr = doErr
+				break
+			}
 			// Network error with this proxy, mark error and failover
 			_ = u.db.RecordProxyFailure(selectedProxy.ID, 0, false)
 			lastErr = doErr

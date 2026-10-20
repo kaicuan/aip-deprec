@@ -1,8 +1,16 @@
 package upstream
 
 import (
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
+
+	"aip/internal/db"
+	"aip/internal/proxy"
 )
 
 func TestCopyHeaderWithoutHopByHop(t *testing.T) {
@@ -81,3 +89,163 @@ func TestExtractToken(t *testing.T) {
 		t.Errorf("extractToken(reasoningTokensRegex) = %d, want 249", got)
 	}
 }
+
+func TestForwardExhaustsAllPoolProxies(t *testing.T) {
+	var attempts int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cur := atomic.AddInt32(&attempts, 1)
+		if cur < 5 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"rate limited"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`ok`))
+	}))
+	defer ts.Close()
+
+	tempDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tempDir, "test.db"))
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	defer database.Close()
+
+	pool := proxy.NewPool(database)
+
+	for i := 1; i <= 5; i++ {
+		p := &db.Proxy{
+			RawInput:  fmt.Sprintf("http://127.0.0.1:808%d", i),
+			URL:       fmt.Sprintf("http://127.0.0.1:808%d", i),
+			Protocol:  "direct",
+			Host:      "localhost",
+			Status:    "online",
+			CreatedAt: 1000,
+		}
+		if err := database.InsertProxy(p); err != nil {
+			t.Fatalf("failed to insert proxy: %v", err)
+		}
+	}
+
+	u := NewUpstream(database, pool)
+	u.baseURL = ts.URL
+
+	req := httptest.NewRequest(http.MethodPost, "http://localhost:8080/v1/chat/completions", strings.NewReader(`{"model":"test"}`))
+	rec := httptest.NewRecorder()
+
+	u.Forward(rec, req, "chat/completions")
+
+	if atomic.LoadInt32(&attempts) != 5 {
+		t.Errorf("expected 5 attempts across the pool, got %d", attempts)
+	}
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+}
+
+func TestForwardExhaustsAllPoolProxies_AllFail429(t *testing.T) {
+	var attempts int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&attempts, 1)
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":"rate limited"}`))
+	}))
+	defer ts.Close()
+
+	tempDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tempDir, "test.db"))
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	defer database.Close()
+
+	pool := proxy.NewPool(database)
+
+	for i := 1; i <= 5; i++ {
+		p := &db.Proxy{
+			RawInput:  fmt.Sprintf("http://127.0.0.1:808%d", i),
+			URL:       fmt.Sprintf("http://127.0.0.1:808%d", i),
+			Protocol:  "direct",
+			Host:      "localhost",
+			Status:    "online",
+			CreatedAt: 1000,
+		}
+		if err := database.InsertProxy(p); err != nil {
+			t.Fatalf("failed to insert proxy: %v", err)
+		}
+	}
+
+	u := NewUpstream(database, pool)
+	u.baseURL = ts.URL
+
+	req := httptest.NewRequest(http.MethodPost, "http://localhost:8080/v1/chat/completions", strings.NewReader(`{"model":"test"}`))
+	rec := httptest.NewRecorder()
+
+	u.Forward(rec, req, "chat/completions")
+
+	if atomic.LoadInt32(&attempts) != 5 {
+		t.Errorf("expected 5 attempts across the pool, got %d", attempts)
+	}
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("expected status %d, got %d", http.StatusTooManyRequests, rec.Code)
+	}
+}
+
+func TestForwardThroughRelay(t *testing.T) {
+	var receivedTarget, receivedPath, receivedAuth, receivedHost string
+	relayServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedTarget = r.Header.Get("x-relay-target")
+		receivedPath = r.Header.Get("x-relay-path")
+		receivedAuth = r.Header.Get("Authorization")
+		receivedHost = r.Host
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-test"}`))
+	}))
+	defer relayServer.Close()
+
+	tempDir := t.TempDir()
+	database, err := db.Open(filepath.Join(tempDir, "test.db"))
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	defer database.Close()
+
+	pool := proxy.NewPool(database)
+
+	p := &db.Proxy{
+		RawInput:  relayServer.URL,
+		URL:       relayServer.URL,
+		Protocol:  "relay",
+		Host:      relayServer.Listener.Addr().String(),
+		Status:    "online",
+		CreatedAt: 1000,
+	}
+	if err := database.InsertProxy(p); err != nil {
+		t.Fatalf("failed to insert relay proxy: %v", err)
+	}
+
+	u := NewUpstream(database, pool)
+	u.baseURL = "https://opencode.ai/zen/v1"
+
+	req := httptest.NewRequest(http.MethodPost, "http://localhost:8080/v1/chat/completions", strings.NewReader(`{"model":"test"}`))
+	rec := httptest.NewRecorder()
+
+	u.Forward(rec, req, "chat/completions")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+	if receivedTarget != "https://opencode.ai" {
+		t.Errorf("expected x-relay-target https://opencode.ai, got %q", receivedTarget)
+	}
+	if receivedPath != "/zen/v1/chat/completions" {
+		t.Errorf("expected x-relay-path /zen/v1/chat/completions, got %q", receivedPath)
+	}
+	if receivedAuth != "Bearer public" {
+		t.Errorf("expected Authorization Bearer public, got %q", receivedAuth)
+	}
+	if receivedHost != relayServer.Listener.Addr().String() {
+		t.Errorf("expected Host header %q, got %q", relayServer.Listener.Addr().String(), receivedHost)
+	}
+}
+

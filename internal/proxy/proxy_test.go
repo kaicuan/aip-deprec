@@ -1,8 +1,11 @@
 package proxy
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"aip/internal/db"
 )
@@ -65,6 +68,30 @@ func TestParseProxy(t *testing.T) {
 			raw:          "ftp://user:pass@1.2.3.4:21",
 			defaultProto: "http",
 			wantErr:      true,
+		},
+		{
+			name:         "Explicit relay protocol scheme",
+			raw:          "relay://my-worker.workers.dev",
+			defaultProto: "http",
+			wantProto:    "relay",
+			wantHost:     "my-worker.workers.dev",
+			wantPort:     443,
+		},
+		{
+			name:         "Auto-detect Cloudflare workers.dev as relay",
+			raw:          "https://cloudflare-relay1.anya1-linerangers.workers.dev",
+			defaultProto: "http",
+			wantProto:    "relay",
+			wantHost:     "cloudflare-relay1.anya1-linerangers.workers.dev",
+			wantPort:     443,
+		},
+		{
+			name:         "Auto-detect Vercel vercel.app as relay",
+			raw:          "https://vercel-relay1.vercel.app",
+			defaultProto: "http",
+			wantProto:    "relay",
+			wantHost:     "vercel-relay1.vercel.app",
+			wantPort:     443,
 		},
 	}
 
@@ -130,3 +157,40 @@ func TestGetTransportCaching(t *testing.T) {
 		t.Errorf("expected cached transport instance to be reused (pointers %p and %p)", tr1, tr2)
 	}
 }
+
+func TestRelayTestProxy(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("x-relay-target") != "https://opencode.ai" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`missing x-relay-target`))
+			return
+		}
+		if r.Header.Get("x-relay-path") != "/zen/v1/models" {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`missing x-relay-path`))
+			return
+		}
+		w.Header().Set("cf-ray", "12345678-SIN")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer ts.Close()
+
+	p := &db.Proxy{
+		URL:      ts.URL,
+		Protocol: "relay",
+		Host:     ts.Listener.Addr().String(),
+	}
+
+	lat, egress, err := TestProxy(p, 2*time.Second)
+	if err != nil {
+		t.Fatalf("TestProxy for relay failed: %v", err)
+	}
+	if lat < 0 {
+		t.Errorf("expected non-negative latency, got %d", lat)
+	}
+	if egress != "cf-SIN" {
+		t.Errorf("expected egress cf-SIN, got %q", egress)
+	}
+}
+

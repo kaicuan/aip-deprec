@@ -344,6 +344,13 @@ export function ProxiesPage() {
                         <TableCell className="font-mono text-xs">
                           {p.protocol === "direct" ? (
                             <span className="text-muted-foreground italic">direct (local connection)</span>
+                          ) : p.protocol === "relay" ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium text-foreground">{p.host}</span>
+                              <span className="text-[10px] text-muted-foreground bg-muted px-1 rounded">
+                                relay edge
+                              </span>
+                            </div>
                           ) : (
                             <div className="flex items-center gap-1.5">
                               <span className="font-medium text-foreground">{p.host}</span>
@@ -471,7 +478,7 @@ export function ProxiesPage() {
                 <Field className="mt-4">
                   <FieldLabel>Default Protocol</FieldLabel>
                   <div className="flex gap-2">
-                    {["http", "socks5"].map((proto) => (
+                    {["http", "socks5", "relay"].map((proto) => (
                       <Button
                         key={proto}
                         type="button"
@@ -490,7 +497,7 @@ export function ProxiesPage() {
                   <Field data-invalid={addMode === "bulk" && !!formError}>
                     <FieldLabel>Proxy List (One per line)</FieldLabel>
                     <Textarea
-                      placeholder={`# Supported formats:\n31.59.20.176:6754:user:pass\n45.38.107.97:6014\nhttp://user:pass@host:port\nsocks5://user:pass@host:port`}
+                      placeholder={`# Supported formats:\n31.59.20.176:6754:user:pass\n45.38.107.97:6014\nhttp://user:pass@host:port\nsocks5://user:pass@host:port\nhttps://your-relay.workers.dev\nhttps://your-relay.vercel.app`}
                       rows={8}
                       value={bulkInput}
                       onChange={(e) => {

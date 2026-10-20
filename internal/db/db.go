@@ -103,6 +103,8 @@ func (d *DB) initSchema() error {
 	_ = d.addColumnIfNotExists("request_logs", "estimated_savings", "REAL NOT NULL DEFAULT 0.0")
 	// Clean up any direct proxy entries so local IP is never part of the pool
 	_, _ = d.db.Exec(`DELETE FROM proxies WHERE protocol = 'direct'`)
+	// Upgrade existing workers.dev or vercel.app proxies to protocol 'relay'
+	_, _ = d.db.Exec(`UPDATE proxies SET protocol = 'relay' WHERE protocol IN ('http', 'https') AND (host LIKE '%.workers.dev' OR host LIKE '%.vercel.app')`)
 
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -195,6 +196,11 @@ func (s *DiscoveryService) FetchFreeModels() ([]*db.Model, error) {
 			FetchedAt:        now,
 		})
 	}
+
+	// Sort models deterministically by ID ASC
+	sort.Slice(savedModels, func(i, j int) bool {
+		return savedModels[i].ID < savedModels[j].ID
+	})
 
 	// Atomically persist models to database
 	if err := s.db.UpdateModels(savedModels); err != nil {

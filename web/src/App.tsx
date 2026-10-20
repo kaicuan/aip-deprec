@@ -3,6 +3,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/toast"
 
 import { OverviewPage } from "@/pages/Overview"
 import { IntegrationPage } from "@/pages/Integration"
@@ -35,6 +36,7 @@ export function App() {
           </SidebarInset>
         </SidebarProvider>
       </BrowserRouter>
+      <Toaster />
     </ThemeProvider>
   )
 }

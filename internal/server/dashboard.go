@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"aip/internal/db"
-	"aip/internal/opencode"
 	"aip/internal/proxy"
 )
 
@@ -223,126 +222,102 @@ func (s *Server) handleSingleProxy(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
-// /api/models (GET)
+// /api/models (GET, PUT)
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+		models, err := s.db.ListModels()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if models == nil {
+			models = []*db.Model{}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(models)
+
+	case http.MethodPut:
+		s.logger.Info("discovery", "Fetching active free models from models.dev...")
+		models, err := s.discovery.FetchFreeModels()
+		if err != nil {
+			s.logger.Error("discovery", "Failed to fetch models: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		s.logger.Info("discovery", "Discovered %d active free models", len(models))
+		if models == nil {
+			models = []*db.Model{}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(models)
+
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
 	}
-
-	models, err := s.db.ListModels()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if models == nil {
-		models = []*db.Model{}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(models)
 }
 
-// /api/models/fetch (POST)
-func (s *Server) handleModelsFetch(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+// /api/integrations (GET, PUT, DELETE)
+func (s *Server) handleIntegrations(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		st, err := s.opencode.CheckStatus()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(st)
+
+	case http.MethodPut:
+		models, err := s.db.ListModels()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if err := s.opencode.LinkOrSync(models); err != nil {
+			s.logger.Error("sync", "Failed to link integration: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		st, err := s.opencode.CheckStatus()
+		if err != nil {
+			s.logger.Error("sync", "Failed to check integration status after link: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		s.logger.Info("sync", "Successfully linked AIP integration with %d models", len(models))
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(st)
+
+	case http.MethodDelete:
+		if err := s.opencode.Unlink(); err != nil {
+			s.logger.Error("sync", "Failed to unlink integration: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		st, err := s.opencode.CheckStatus()
+		if err != nil {
+			s.logger.Error("sync", "Failed to check integration status after unlink: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		s.logger.Info("sync", "Unlinked AIP integration configuration")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(st)
+
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
 	}
-
-	s.logger.Info("discovery", "Fetching active free models from models.dev...")
-	models, err := s.discovery.FetchFreeModels()
-	if err != nil {
-		s.logger.Error("discovery", "Failed to fetch models: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	s.logger.Info("discovery", "Discovered %d active free models", len(models))
-
-	// Auto sync if linked
-	autoSynced, syncErr := s.opencode.AutoSyncIfLinked(models)
-	if syncErr != nil {
-		s.logger.Warn("sync", "Auto-sync to opencode.json failed: %v", syncErr)
-	} else if autoSynced {
-		s.logger.Info("sync", "Automatically updated opencode.json with %d free models", len(models))
-	}
-
-	resp := map[string]interface{}{
-		"count":       len(models),
-		"models":      models,
-		"auto_synced": autoSynced,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
-}
-
-// /api/opencode/status (GET)
-func (s *Server) handleOpenCodeStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	st, err := s.opencode.CheckStatus()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	models, _ := s.db.ListModels()
-	snippet := opencode.GenerateSnippet(models)
-
-	resp := map[string]interface{}{
-		"status":  st,
-		"snippet": snippet,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
-}
-
-// /api/opencode/link (POST)
-func (s *Server) handleOpenCodeLink(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	models, err := s.db.ListModels()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	if err := s.opencode.LinkOrSync(models); err != nil {
-		s.logger.Error("sync", "Failed to link OpenCode: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	s.logger.Info("sync", "Successfully linked AIP to OpenCode configuration with %d models", len(models))
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "synced_count": len(models)})
-}
-
-// /api/opencode/unlink (POST)
-func (s *Server) handleOpenCodeUnlink(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	if err := s.opencode.Unlink(); err != nil {
-		s.logger.Error("sync", "Failed to unlink OpenCode: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	s.logger.Info("sync", "Unlinked AIP provider from OpenCode configuration")
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
 // /api/usage (GET)

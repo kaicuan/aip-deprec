@@ -105,7 +105,6 @@ export interface OpenCodeStatus {
   config_file_exists: boolean
   config_path: string
   is_linked: boolean
-  synced_model_count: number
   synced_models: string[]
 }
 
@@ -165,31 +164,31 @@ export async function getModels(): Promise<ModelItem[]> {
   return res.json()
 }
 
-export async function fetchFreeModels(): Promise<{ count: number; models: ModelItem[]; auto_synced: boolean }> {
-  const res = await fetch(`${API_BASE}/api/models/fetch`, {
-    method: 'POST',
+export async function fetchFreeModels(): Promise<ModelItem[]> {
+  const res = await fetch(`${API_BASE}/api/models`, {
+    method: 'PUT',
   })
   if (!res.ok) throw new Error('Failed to fetch models catalog')
   return res.json()
 }
 
-export async function getOpenCodeStatus(): Promise<{ status: OpenCodeStatus; snippet: string }> {
-  const res = await fetch(`${API_BASE}/api/opencode/status`)
+export async function getOpenCodeStatus(): Promise<OpenCodeStatus> {
+  const res = await fetch(`${API_BASE}/api/integrations`)
   if (!res.ok) throw new Error('Failed to fetch OpenCode status')
   return res.json()
 }
 
-export async function linkOpenCode(): Promise<{ success: boolean; synced_count: number }> {
-  const res = await fetch(`${API_BASE}/api/opencode/link`, {
-    method: 'POST',
+export async function linkOpenCode(): Promise<OpenCodeStatus> {
+  const res = await fetch(`${API_BASE}/api/integrations`, {
+    method: 'PUT',
   })
   if (!res.ok) throw new Error('Failed to link OpenCode')
   return res.json()
 }
 
-export async function unlinkOpenCode(): Promise<{ success: boolean }> {
-  const res = await fetch(`${API_BASE}/api/opencode/unlink`, {
-    method: 'POST',
+export async function unlinkOpenCode(): Promise<OpenCodeStatus> {
+  const res = await fetch(`${API_BASE}/api/integrations`, {
+    method: 'DELETE',
   })
   if (!res.ok) throw new Error('Failed to unlink OpenCode')
   return res.json()

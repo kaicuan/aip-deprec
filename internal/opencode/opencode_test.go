@@ -134,8 +134,8 @@ func TestLinkAndUnlink(t *testing.T) {
 		if !status.IsLinked {
 			t.Errorf("expected is_linked = true after LinkOrSync")
 		}
-		if status.SyncedModelCount != 1 {
-			t.Errorf("expected 1 synced model, got %d", status.SyncedModelCount)
+		if len(status.SyncedModels) != 1 {
+			t.Errorf("expected 1 synced model, got %d", len(status.SyncedModels))
 		}
 
 		// Verify existing provider was NOT overwritten

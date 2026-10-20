@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -15,7 +16,6 @@ type StatusResponse struct {
 	ConfigFileExists bool     `json:"config_file_exists"`
 	ConfigPath       string   `json:"config_path"`
 	IsLinked         bool     `json:"is_linked"`
-	SyncedModelCount int      `json:"synced_model_count"`
 	SyncedModels     []string `json:"synced_models"`
 }
 
@@ -72,10 +72,10 @@ func (m *Manager) CheckStatus() (*StatusResponse, error) {
 	if aipMap, ok := aipRaw.(map[string]interface{}); ok {
 		if modelsRaw, ok := aipMap["models"]; ok {
 			if modelsMap, ok := modelsRaw.(map[string]interface{}); ok {
-				res.SyncedModelCount = len(modelsMap)
 				for modelID := range modelsMap {
 					res.SyncedModels = append(res.SyncedModels, modelID)
 				}
+				sort.Strings(res.SyncedModels)
 			}
 		}
 	}
@@ -164,18 +164,6 @@ func (m *Manager) Unlink() error {
 
 	output = append(output, '\n')
 	return os.WriteFile(m.configPath, output, 0644)
-}
-
-func (m *Manager) AutoSyncIfLinked(models []*db.Model) (bool, error) {
-	status, err := m.CheckStatus()
-	if err != nil || !status.IsLinked {
-		return false, err
-	}
-
-	if err := m.LinkOrSync(models); err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 func GenerateSnippet(models []*db.Model) string {

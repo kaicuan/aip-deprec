@@ -81,7 +81,10 @@ func ParseProxy(raw string, defaultProto string) (*db.Proxy, error) {
 
 	// Ensure protocol scheme
 	norm := raw
-	if !strings.Contains(norm, "://") {
+	if strings.HasPrefix(strings.ToLower(norm), "relay://") {
+		norm = "https://" + norm[len("relay://"):]
+		defaultProto = "relay"
+	} else if !strings.Contains(norm, "://") {
 		norm = defaultProto + "://" + norm
 	}
 
@@ -91,7 +94,13 @@ func ParseProxy(raw string, defaultProto string) (*db.Proxy, error) {
 	}
 
 	protocol := strings.ToLower(u.Scheme)
-	if protocol != "http" && protocol != "https" && protocol != "socks5" && protocol != "socks5h" && protocol != "direct" {
+	if defaultProto == "relay" || protocol == "relay" {
+		protocol = "relay"
+	} else if strings.HasSuffix(strings.ToLower(u.Hostname()), ".workers.dev") || strings.HasSuffix(strings.ToLower(u.Hostname()), ".vercel.app") {
+		protocol = "relay"
+	}
+
+	if protocol != "http" && protocol != "https" && protocol != "socks5" && protocol != "socks5h" && protocol != "direct" && protocol != "relay" {
 		return nil, fmt.Errorf("unsupported protocol %q", protocol)
 	}
 
@@ -105,7 +114,7 @@ func ParseProxy(raw string, defaultProto string) (*db.Proxy, error) {
 		port, _ = strconv.Atoi(pStr)
 	} else if protocol == "http" {
 		port = 80
-	} else if protocol == "https" {
+	} else if protocol == "https" || protocol == "relay" {
 		port = 443
 	} else if protocol == "socks5" || protocol == "socks5h" {
 		port = 1080
@@ -117,9 +126,17 @@ func ParseProxy(raw string, defaultProto string) (*db.Proxy, error) {
 		password, _ = u.User.Password()
 	}
 
+	canonicalURL := u.String()
+	if protocol == "relay" {
+		canonicalURL = fmt.Sprintf("https://%s", host)
+		if port != 443 && port != 0 {
+			canonicalURL = fmt.Sprintf("https://%s:%d", host, port)
+		}
+	}
+
 	return &db.Proxy{
 		RawInput:  raw,
-		URL:       u.String(),
+		URL:       canonicalURL,
 		Protocol:  protocol,
 		Host:      host,
 		Port:      port,
@@ -132,7 +149,7 @@ func ParseProxy(raw string, defaultProto string) (*db.Proxy, error) {
 
 // CreateTransport configures an http.Transport with the proxy
 func CreateTransport(p *db.Proxy) (*http.Transport, error) {
-	if p == nil || p.Protocol == "direct" {
+	if p == nil || p.Protocol == "direct" || p.Protocol == "relay" {
 		return &http.Transport{
 			Proxy: nil,
 			DialContext: (&net.Dialer{
@@ -194,10 +211,56 @@ func CreateTransport(p *db.Proxy) (*http.Transport, error) {
 	return nil, fmt.Errorf("unsupported protocol: %s", p.Protocol)
 }
 
-// TestProxy probes https://cloudflare.com/cdn-cgi/trace
+// TestProxy probes https://cloudflare.com/cdn-cgi/trace for normal proxies,
+// or tests the relay directly with x-relay-target/x-relay-path for relays.
 func TestProxy(p *db.Proxy, timeout time.Duration) (int, string, error) {
 	if timeout <= 0 {
 		timeout = 8 * time.Second
+	}
+
+	if p != nil && p.Protocol == "relay" {
+		client := &http.Client{
+			Timeout: timeout,
+		}
+		req, err := http.NewRequestWithContext(context.Background(), "GET", p.URL, nil)
+		if err != nil {
+			return 0, "", err
+		}
+		req.Header.Set("x-relay-target", "https://opencode.ai")
+		req.Header.Set("x-relay-path", "/zen/v1/models")
+		req.Header.Set("Authorization", "Bearer public")
+		req.Header.Set("User-Agent", "curl/8.5.0")
+		req.Host = p.Host
+
+		start := time.Now()
+		resp, err := client.Do(req)
+		if err != nil {
+			return 0, "", err
+		}
+		defer resp.Body.Close()
+
+		duration := int(time.Since(start).Milliseconds())
+		if resp.StatusCode != http.StatusOK {
+			return duration, "", fmt.Errorf("unexpected status %d", resp.StatusCode)
+		}
+
+		egress := "relay-edge"
+		if ray := resp.Header.Get("cf-ray"); ray != "" {
+			parts := strings.Split(ray, "-")
+			if len(parts) > 1 {
+				egress = "cf-" + parts[1]
+			} else {
+				egress = "cloudflare"
+			}
+		} else if vID := resp.Header.Get("x-vercel-id"); vID != "" {
+			parts := strings.Split(vID, "::")
+			if len(parts) > 0 && parts[0] != "" {
+				egress = "vercel-" + parts[0]
+			} else {
+				egress = "vercel"
+			}
+		}
+		return duration, egress, nil
 	}
 
 	tr, err := CreateTransport(p)

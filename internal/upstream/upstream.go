@@ -2,6 +2,8 @@ package upstream
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"aip/internal/config"
@@ -49,6 +52,46 @@ func copyHeaderWithoutHopByHop(dst, src http.Header) {
 			dst.Add(k, v)
 		}
 	}
+}
+
+var (
+	descMu        sync.Mutex
+	lastTimestamp int64
+	descCounter   int64
+)
+
+const b62Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+// GenerateDescendingID creates a time-descending ID matching OpenCode's schema format:
+// prefix + 12-char hex (bitwise inverted BigInt timestamp*0x1000 + counter) + 14 random base62 chars.
+func GenerateDescendingID(prefix string) string {
+	descMu.Lock()
+	now := time.Now().UnixMilli()
+	if now != lastTimestamp {
+		lastTimestamp = now
+		descCounter = 0
+	}
+	descCounter++
+	cnt := descCounter
+	descMu.Unlock()
+
+	current := uint64(now)*0x1000 + uint64(cnt)
+	val := ^current
+
+	timeBytes := make([]byte, 6)
+	for i := 0; i < 6; i++ {
+		timeBytes[i] = byte((val >> uint(40-8*i)) & 0xff)
+	}
+	timeHex := hex.EncodeToString(timeBytes)
+
+	randBytes := make([]byte, 14)
+	_, _ = rand.Read(randBytes)
+	var randPart [14]byte
+	for i, b := range randBytes {
+		randPart[i] = b62Chars[b%62]
+	}
+
+	return prefix + timeHex + string(randPart[:])
 }
 
 func extractToken(regex *regexp.Regexp, primary, secondary string) int {
@@ -153,10 +196,40 @@ func (u *Upstream) Forward(w http.ResponseWriter, r *http.Request, pathSuffix st
 		// Inject Authorization: Bearer public
 		outReq.Header.Set("Authorization", "Bearer public")
 
+		// Inject required OpenCode client authentication & telemetry headers
+		if outReq.Header.Get("User-Agent") == "" || !strings.HasPrefix(outReq.Header.Get("User-Agent"), "opencode/") {
+			outReq.Header.Set("User-Agent", "opencode/1.19.3 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14")
+		}
+		if outReq.Header.Get("x-opencode-client") == "" {
+			outReq.Header.Set("x-opencode-client", "cli")
+		}
+		if outReq.Header.Get("x-opencode-project") == "" {
+			outReq.Header.Set("x-opencode-project", "global")
+		}
+		if outReq.Header.Get("x-opencode-request") == "" {
+			outReq.Header.Set("x-opencode-request", GenerateDescendingID("msg_"))
+		}
+
+		sessionID := outReq.Header.Get("x-opencode-session")
+		if sessionID == "" {
+			sessionID = outReq.Header.Get("x-opencode-session-id")
+		}
+		if sessionID == "" {
+			sessionID = outReq.Header.Get("X-Session-Affinity")
+		}
+		if sessionID == "" {
+			sessionID = outReq.Header.Get("X-Session-Id")
+		}
+		if sessionID == "" || !strings.HasPrefix(sessionID, "ses_") {
+			sessionID = GenerateDescendingID("ses_")
+		}
+		outReq.Header.Set("x-opencode-session", sessionID)
+		outReq.Header.Set("x-opencode-session-id", sessionID)
+
 		if selectedProxy.Protocol == "relay" {
 			uBase, pErr := url.Parse(u.baseURL)
 			relayTarget := "https://opencode.ai"
-			relayPathPrefix := "/zen/v1"
+			relayPathPrefix := "/inference/openai/v1"
 			if pErr == nil && uBase.Host != "" {
 				relayTarget = uBase.Scheme + "://" + uBase.Host
 				relayPathPrefix = uBase.Path

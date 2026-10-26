@@ -7,7 +7,7 @@ import (
 
 const (
 	DefaultPort = 9100
-	UpstreamBaseURL = "https://opencode.ai/zen/v1"
+	UpstreamBaseURL = "https://opencode.ai/inference/openai/v1"
 )
 
 type Config struct {

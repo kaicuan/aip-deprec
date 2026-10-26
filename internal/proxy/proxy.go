@@ -227,7 +227,7 @@ func TestProxy(p *db.Proxy, timeout time.Duration) (int, string, error) {
 			return 0, "", err
 		}
 		req.Header.Set("x-relay-target", "https://opencode.ai")
-		req.Header.Set("x-relay-path", "/zen/v1/models")
+		req.Header.Set("x-relay-path", "/inference/openai/v1/models")
 		req.Header.Set("Authorization", "Bearer public")
 		req.Header.Set("User-Agent", "curl/8.5.0")
 		req.Host = p.Host

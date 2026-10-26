@@ -6,7 +6,7 @@ A lightweight, dedicated OpenCode Free proxy gateway with proxy pooling, multi-u
 
 ## Features
 
-- **Transparent Upstream Reverse Proxy (`opencode.ai/zen/v1`):**
+- **Transparent Upstream Reverse Proxy (`opencode.ai/inference/openai/v1`):**
   - Zero payload tampering: forwards raw OpenCode request bytes, session affinity (`x-opencode-session`), and tool calls.
   - Token injection: replaces client authorization with `Bearer public`.
   - Zero-buffering Server-Sent Events (SSE) token streaming.

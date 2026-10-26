@@ -165,7 +165,7 @@ func TestRelayTestProxy(t *testing.T) {
 			_, _ = w.Write([]byte(`missing x-relay-target`))
 			return
 		}
-		if r.Header.Get("x-relay-path") != "/zen/v1/models" {
+		if r.Header.Get("x-relay-path") != "/inference/openai/v1/models" {
 			w.WriteHeader(http.StatusBadRequest)
 			_, _ = w.Write([]byte(`missing x-relay-path`))
 			return

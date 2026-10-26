@@ -225,7 +225,7 @@ func TestForwardThroughRelay(t *testing.T) {
 	}
 
 	u := NewUpstream(database, pool)
-	u.baseURL = "https://opencode.ai/zen/v1"
+	u.baseURL = "https://opencode.ai/inference/openai/v1"
 
 	req := httptest.NewRequest(http.MethodPost, "http://localhost:8080/v1/chat/completions", strings.NewReader(`{"model":"test"}`))
 	rec := httptest.NewRecorder()
@@ -238,8 +238,8 @@ func TestForwardThroughRelay(t *testing.T) {
 	if receivedTarget != "https://opencode.ai" {
 		t.Errorf("expected x-relay-target https://opencode.ai, got %q", receivedTarget)
 	}
-	if receivedPath != "/zen/v1/chat/completions" {
-		t.Errorf("expected x-relay-path /zen/v1/chat/completions, got %q", receivedPath)
+	if receivedPath != "/inference/openai/v1/chat/completions" {
+		t.Errorf("expected x-relay-path /inference/openai/v1/chat/completions, got %q", receivedPath)
 	}
 	if receivedAuth != "Bearer public" {
 		t.Errorf("expected Authorization Bearer public, got %q", receivedAuth)
